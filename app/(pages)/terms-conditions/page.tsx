@@ -86,33 +86,40 @@ export default function TermsConditions() {
                 </div>
 
                 <div>
-                  <h3 className="text-lg font-bold mb-2 text-slate-800">4.3 Billing cycle</h3>
-                  <p>Your Subscription renews automatically each month on the anniversary of your initial sign-up date. You will be charged the Subscription Fee on each renewal date unless you cancel in accordance with Section 4.5. There is no free trial.</p>
+                  <h3 className="text-lg font-bold mb-2 text-slate-800">4.3 Free Search Trial</h3>
+                  <p>
+                    Before you subscribe, you may run one free search without creating an Account or providing payment details (&quot;Free Search Trial&quot;). The Free Search Trial lets you see up to five (5) UK limited company leads per search, including company names, phone numbers and websites where available. Director names, full personalised pitches and other subscriber-only features are not shown until you take out a paid Subscription. The Free Search Trial is limited to one search per person or device, as we determine using reasonable technical measures (for example browser or device identifiers). We may change or withdraw the Free Search Trial at any time. After you have used your Free Search Trial, continued use of the Service requires a paid Subscription in accordance with Sections 4.1 and 4.6.
+                  </p>
                 </div>
 
                 <div>
-                  <h3 className="text-lg font-bold mb-2 text-slate-800">4.4 Price changes</h3>
+                  <h3 className="text-lg font-bold mb-2 text-slate-800">4.4 Billing cycle</h3>
+                  <p>Your Subscription renews automatically each month on the anniversary of your initial sign-up date. You will be charged the Subscription Fee on each renewal date unless you cancel in accordance with Section 4.6.</p>
+                </div>
+
+                <div>
+                  <h3 className="text-lg font-bold mb-2 text-slate-800">4.5 Price changes</h3>
                   <p>We may change the Subscription Fee at any time. If we increase the price, we will give you at least 30 days' notice before the new price takes effect. If you do not agree to the price change, you may cancel your Subscription before the change takes effect.</p>
                 </div>
 
                 <div>
-                  <h3 className="text-lg font-bold mb-2 text-slate-800">4.5 Cancellation</h3>
+                  <h3 className="text-lg font-bold mb-2 text-slate-800">4.6 Cancellation</h3>
                   <p>You may cancel your Subscription at any time through your Account settings or by contacting us at help@zivlo.io. Cancellation takes effect at the end of your current billing period. You will continue to have access to the Service until the end of that period.</p>
                   <p className="mt-2">If you cancel, your Account will be closed and any Content you have generated will no longer be accessible.</p>
                 </div>
 
                 <div>
-                  <h3 className="text-lg font-bold mb-2 text-slate-800">4.6 Failed payments</h3>
+                  <h3 className="text-lg font-bold mb-2 text-slate-800">4.7 Failed payments</h3>
                   <p>If a payment fails, we will retry the charge. If payment continues to fail, we may suspend or terminate your access to the Service after giving you reasonable notice.</p>
                 </div>
 
                 <div>
-                  <h3 className="text-lg font-bold mb-2 text-slate-800">4.7 Refund policy - 14-day cooling-off period</h3>
+                  <h3 className="text-lg font-bold mb-2 text-slate-800">4.8 Refund policy - 14-day cooling-off period</h3>
                   <p className="mb-2">If you are a consumer (an individual not acting in the course of a business), you have a statutory right to cancel your Subscription within 14 days of your initial sign-up without giving any reason, for a full refund of the Subscription Fee paid.</p>
                   <p className="mb-2">To exercise this right, contact us at help@zivlo.io within the 14-day period, stating that you wish to cancel. We will process your refund within 14 days using the original payment method.</p>
                   <p className="mb-2">If you use the Service during the 14-day cooling-off period, we may deduct a reasonable amount from the refund to cover the value of the service you have consumed.</p>
                   <p className="mb-2">This 14-day cooling-off right applies only to your initial subscription. It does not apply to renewal months.</p>
-                  <p>If you are a business customer, you may still cancel at any time in accordance with Section 4.5, but no refund will be given for partial months already consumed.</p>
+                  <p>If you are a business customer, you may still cancel at any time in accordance with Section 4.6, but no refund will be given for partial months already consumed.</p>
                 </div>
               </div>
             </section>
