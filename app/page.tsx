@@ -1,356 +1,456 @@
 "use client";
 import Logo from "@/components/Logo";
+import Image from "next/image";
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  ArrowRight,
   Check,
   Search,
-  FileText,
+  ClipboardList,
   Send,
   Phone,
   Globe,
   User,
   ChevronDown,
+  Copy,
+  MessageSquare,
+  Calendar,
 } from "lucide-react";
 
-export default function HomePage({
-  onNavigate
-}: {
-  onNavigate?: (screen: string) => void
-}) {
+const DEMO_LEAD = {
+  companyName: "Brighton & Hove Estates",
+  businessType: "Estate Agent",
+  location: "Brighton",
+  incorporationYear: 2016,
+  phone: "01273 555 0142",
+  website: "bhestates.co.uk",
+  directorName: "James Whitford",
+  directorRole: "Director",
+  pitch:
+    "Hi James — I noticed Brighton & Hove Estates has been trading since 2016 and has a strong presence in the local Brighton market. I help independent estate agents redesign their websites to stand out on Rightmove and Zoopla. Would a quick chat next week be of interest?",
+};
+
+const FAQ_ITEMS = [
+  {
+    q: "Is this legal?",
+    a: "Yes. Zivlo only ever returns UK limited companies. Sole traders and partnerships — the ones that need consent before you can contact them — are filtered out automatically. Limited companies are listed on the public Companies House register. Your outreach rests on a legitimate-interest basis, and you provide a clear opt-out in every message. If you're unsure, seek legal advice for your specific situation.",
+  },
+  {
+    q: "Can I try before I pay?",
+    a: "Yes. Run one free search — no signup, no credit card. You'll see 5 real UK leads with company names, phone numbers, and websites. Director names and full personalised pitches are hidden until you subscribe. It takes 60 seconds to see what Zivlo finds. Then £19.99/month to unlock everything.",
+  },
+  {
+    q: "How is this different from buying a leads list?",
+    a: "A leads list is static, often outdated, and sold to dozens of people. Zivlo pulls live data from Companies House and generates personalised pitches at the moment you search. You're not buying a spreadsheet — you're using a tool to find and prepare your outreach in real time.",
+  },
+  {
+    q: "What if I get no replies?",
+    a: "Zivlo is a lead-finding and pitch-writing tool, not a guaranteed client generator. Results depend on your offer, timing, and follow-up. That said, if you're not getting replies, reach out — I'll review your pitches and help you refine them.",
+  },
+  {
+    q: "How many leads do I get per search?",
+    a: "Up to 10 leads per search (5 on your free trial), up to 5 searches per day. Your free search shows real UK companies with contact details — director names and full pitches unlock after subscribing. £19.99/month, cancel anytime.",
+  },
+  {
+    q: "Can I cancel anytime?",
+    a: "Yes. Cancel from your account settings with two clicks. No phone call required. No awkward conversation.",
+  },
+];
+
+export default function HomePage() {
   const router = useRouter();
   const [openFaq, setOpenFaq] = useState<number | null>(null);
-  const navy = "#0D1529";
-  const gold = "#C8A84B";
+  const [copied, setCopied] = useState(false);
 
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem("auth_token");
     if (token) setIsLoggedIn(true);
   }, []);
 
+  useEffect(() => {
+    const handleScroll = () => setScrolled(window.scrollY > 50);
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
   const handleDashboard = () => {
     router.push("/dashboard");
   };
 
-  const handleLogin = () => {
-    router.push('/login');
+  const handleSearch = () => {
+    router.push("/search");
   };
 
-  const handleSignup = () => {
-    router.push('/signup');
+  const handleCopyPitch = async () => {
+    try {
+      await navigator.clipboard.writeText(DEMO_LEAD.pitch);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard unavailable */
+    }
   };
 
   return (
-    <div
-      className="min-h-screen bg-white"
-      style={{ fontFamily: '"Helvetica Neue", Helvetica, Arial, sans-serif' }}
-    >
-      <nav className="flex items-center justify-between px-5 py-4 md:px-12 md:py-5 border-b border-slate-100 sticky top-0 bg-white/95 backdrop-blur z-50">
-        <Logo />
-        <div className="flex items-center gap-2 md:gap-4">
-          {isLoggedIn ? (
-            <button
-              onClick={handleDashboard}
-              className="text-sm md:text-base text-white px-4 py-2.5 md:px-5 md:py-2.5 rounded-lg shadow-md"
-              style={{ backgroundColor: navy }}
-            >
-              Go to Dashboard
-            </button>
-          ) : (
-            <>
-              <button
-                onClick={handleLogin}
-                className="text-sm md:text-base text-slate-600 hover:text-slate-900 transition px-3 py-2"
-              >
-                Log in
-              </button>
-              <button
-                onClick={handleSignup}
-                className="text-sm md:text-base text-white px-4 py-2.5 md:px-5 md:py-2.5 rounded-lg shadow-md"
-                style={{ backgroundColor: navy }}
-              >
-                Start finding leads
-              </button>
-            </>
-          )}
-        </div>
-      </nav>
-
-      <section className="px-5 md:px-12 pt-12 md:pt-24 pb-12 md:pb-20 max-w-5xl mx-auto text-center">
+    <div className="min-h-screen bg-cream">
+      {/* Sticky nav */}
+      <header className="fixed top-0 left-0 right-0 z-50 flex justify-center">
         <div
-          className="inline-block text-xs md:text-sm font-medium px-3 py-1.5 rounded-full mb-6"
-          style={{ backgroundColor: "#FFF8E7", color: "#9A7B1F" }}
+          className={`w-full px-4 pt-3 transition-all md:px-6 ${
+            scrolled ? "max-w-3xl" : "max-w-5xl"
+          }`}
         >
-          ✦ Built for UK B2B businesses
-        </div>
-        <h1
-          className="text-4xl md:text-7xl font-bold tracking-tight leading-[1.05] mb-6"
-          style={{
-            color: navy,
-            fontFamily: "Georgia, serif",
-            letterSpacing: "-0.03em",
-          }}
-        >
-          Stop prospecting.
-          <br />
-          Start closing.
-          <br />
-          <span style={{ color: gold, fontStyle: "italic" }}>
-            Win your next client.
-          </span>
-        </h1>
-        <p className="text-base md:text-xl text-slate-600 max-w-2xl mx-auto mb-10 leading-relaxed">
-          Zivlo finds UK businesses that fit your service — and writes a
-          personalised pitch for each one. No more spreadsheets. No more cold
-          emails to the void. Just real leads, ready to contact.
-        </p>
-        <button
-          onClick={isLoggedIn ? handleDashboard : handleSignup}
-          className="text-white px-8 py-4 rounded-lg text-base font-semibold shadow-lg flex items-center gap-2 mx-auto"
-          style={{
-            backgroundColor: navy,
-            boxShadow: `0 10px 30px -10px ${navy}50`,
-          }}
-        >
-          {isLoggedIn ? "Go to Dashboard" : "Start finding leads — £19.99/month"} <ArrowRight size={18} />
-        </button>
-        <p className="text-sm text-slate-500 mt-5">
-          Cancel anytime. No long contracts.
-        </p>
-      </section>
-
-      <section className="px-5 md:px-12 py-14 md:py-20 bg-slate-50">
-        <div className="max-w-3xl mx-auto text-center">
-          <h2
-            className="text-2xl md:text-4xl font-bold mb-5 leading-tight"
-            style={{
-              color: navy,
-              fontFamily: "Georgia, serif",
-              letterSpacing: "-0.02em",
-            }}
+          <nav
+            className={`flex items-center justify-between ${
+              scrolled
+                ? "rounded-full border border-gray-100 bg-white/95 px-4 py-2 shadow-sm backdrop-blur-md"
+                : "bg-transparent px-1 py-2"
+            }`}
           >
-            You didn't start a business to spend your weekends prospecting.
-          </h2>
-          <p className="text-base md:text-lg text-slate-600 leading-relaxed">
-            Hunting Google Maps. Copying business names into spreadsheets.
-            Searching LinkedIn for the owner. Writing the same generic email 50
-            times. Most of it leads nowhere — and every hour you spend
-            prospecting is an hour you're not doing the work you actually do.{" "}
-            <span className="font-semibold" style={{ color: navy }}>
-              Zivlo gives you that hour back.
-            </span>
-          </p>
-        </div>
-      </section>
+            <Link href="/" className="inline-flex shrink-0 items-center">
+              <Logo
+                className={scrolled ? "h-7 w-auto" : "h-8 w-auto drop-shadow-md"}
+              />
+            </Link>
 
-      <section className="px-5 md:px-12 py-16 md:py-24 max-w-5xl mx-auto">
-        <h2
-          className="text-3xl md:text-5xl font-bold text-center mb-3 leading-tight"
-          style={{
-            color: navy,
-            fontFamily: "Georgia, serif",
-            letterSpacing: "-0.02em",
-          }}
-        >
-          How Zivlo works
-        </h2>
-        <p className="text-center text-slate-600 mb-12 text-base md:text-lg">
-          From idea to outreach in under 60 seconds.
-        </p>
-        <div className="grid md:grid-cols-3 gap-5">
-          {[
-            {
-              num: 1,
-              icon: Search,
-              title: "Pick a niche to target",
-              desc: 'Type the business type you want as a client and a UK location. For example: "Estate agents in Brighton" or "Solicitors in Manchester".',
-            },
-            {
-              num: 2,
-              icon: FileText,
-              title: "Get sourced from Companies House UK leads",
-              desc: "Zivlo pulls live UK business data — name, phone, website, director name — all sourced from Companies House against Companies House.",
-            },
-            {
-              num: 3,
-              icon: Send,
-              title: "Send the perfect pitch",
-              desc: "Each lead comes with a personalised pitch, written from a professional's perspective. Copy, send from your own email, win the client.",
-            },
-          ].map((step) => (
-            <div
-              key={step.num}
-              className="bg-white border border-slate-200 rounded-2xl p-7 hover:shadow-xl hover:-translate-y-1 transition-all duration-300"
-            >
-              <div className="flex items-center justify-between mb-5">
-                <div
-                  className="w-11 h-11 rounded-lg flex items-center justify-center font-bold text-lg"
-                  style={{
-                    backgroundColor: navy,
-                    color: gold,
-                    fontFamily: "Georgia, serif",
-                  }}
+            <div className="flex items-center gap-2 md:gap-3">
+              {isLoggedIn ? (
+                <button
+                  type="button"
+                  onClick={handleDashboard}
+                  className={`rounded-full px-4 py-2 text-xs font-medium md:text-sm ${
+                    scrolled
+                      ? "bg-navy text-white"
+                      : "border border-white/20 bg-white/10 text-white backdrop-blur-sm"
+                  }`}
                 >
-                  {step.num}
-                </div>
-                <step.icon size={22} className="text-slate-300" />
-              </div>
-              <h3
-                className="text-xl font-bold mb-3"
-                style={{ color: navy, fontFamily: "Georgia, serif" }}
-              >
-                {step.title}
-              </h3>
-              <p className="text-slate-600 leading-relaxed text-sm md:text-base">
-                {step.desc}
-              </p>
+                  Dashboard
+                </button>
+              ) : (
+                <>
+                  <Link
+                    href="/login"
+                    className={`px-3 py-2 text-xs font-medium md:text-sm ${
+                      scrolled
+                        ? "text-navy"
+                        : "text-white/90 drop-shadow-sm"
+                    }`}
+                  >
+                    Log in
+                  </Link>
+                  <Link
+                    href="/search"
+                    className={`rounded-full px-4 py-2 text-xs font-medium md:text-sm ${
+                      scrolled
+                        ? "bg-navy text-white"
+                        : "border border-white/20 bg-white/10 text-white backdrop-blur-sm"
+                    }`}
+                  >
+                    Try free
+                  </Link>
+                </>
+              )}
             </div>
-          ))}
+          </nav>
+        </div>
+      </header>
+
+      {/* Hero — city background, no price */}
+      <section className="relative flex min-h-[100dvh] flex-col items-center justify-center overflow-hidden text-center">
+        <Image
+          src="/images/hero-city.jpg"
+          alt="London cityscape at dusk"
+          fill
+          priority
+          className="object-cover"
+          sizes="100vw"
+        />
+        <div
+          className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-transparent"
+          aria-hidden
+        />
+        <div
+          className="absolute bottom-0 left-0 right-0 h-[150px]"
+          style={{
+            background: "linear-gradient(to bottom, transparent, #F8F9FA)",
+          }}
+          aria-hidden
+        />
+
+        <div className="relative z-10 mx-auto max-w-xl px-6 pt-16">
+          <span className="hero-fade-in mb-8 inline-block rounded-full border border-white/40 px-4 py-1.5 text-[10px] uppercase tracking-[0.2em] text-white/80 backdrop-blur-md md:text-xs">
+            Built for UK B2B businesses
+          </span>
+
+          <h1
+            className="hero-fade-in-delay-1 font-serif text-4xl font-semibold leading-[1.15] tracking-tight text-white md:text-5xl lg:text-6xl"
+            style={{ textShadow: "0 2px 20px rgba(0,0,0,0.3)" }}
+          >
+            Stop prospecting.
+            <br />
+            Start closing.
+          </h1>
+
+          <p
+            className="hero-fade-in-delay-2 mt-3 font-serif text-xl italic text-gold md:text-2xl"
+            style={{ textShadow: "0 1px 10px rgba(0,0,0,0.3)" }}
+          >
+            Win your next client.
+          </p>
+
+          <p
+            className="hero-fade-in-delay-3 mt-6 text-sm font-light leading-relaxed tracking-wide text-white/85 md:text-base"
+            style={{ textShadow: "0 1px 8px rgba(0,0,0,0.4)" }}
+          >
+            Zivlo finds UK businesses that fit your service — and writes a
+            personalised pitch for each one.
+          </p>
+
+          <button
+            onClick={isLoggedIn ? handleDashboard : handleSearch}
+            className="hero-fade-in-delay-4 mt-8 rounded-full bg-gold px-8 py-3.5 text-sm font-medium text-navy shadow-lg transition-transform active:scale-95"
+          >
+            {isLoggedIn
+              ? "Go to Dashboard"
+              : "Try one free search — no signup needed"}
+          </button>
+
+          <div className="hero-fade-in-delay-4 mt-4 space-y-1.5">
+            <p className="text-xs tracking-wide text-white/50">
+              See real UK leads in 60 seconds.
+            </p>
+            <p className="text-[10px] tracking-wide text-white/40">
+              Subscribe to unlock director names, full pitches, and unlimited
+              searches.
+            </p>
+          </div>
         </div>
       </section>
 
-      <section className="px-5 md:px-12 py-16 md:py-24 bg-slate-50">
-        <div className="max-w-4xl mx-auto">
-          <div className="text-center mb-12">
-            <div
-              className="inline-block text-xs font-medium px-3 py-1.5 rounded-full mb-4"
-              style={{ backgroundColor: "#FFF8E7", color: "#9A7B1F" }}
-            >
-              Example
-            </div>
-            <h2
-              className="text-3xl md:text-5xl font-bold mb-4 leading-tight"
-              style={{
-                color: navy,
-                fontFamily: "Georgia, serif",
-                letterSpacing: "-0.02em",
-              }}
-            >
-              This is what you'll get
+      {/* Feature quote + office image */}
+      <section className="bg-cream">
+        <div className="px-5 py-16 text-center md:px-12 md:py-20">
+          <div className="mx-auto max-w-2xl">
+            <h2 className="font-serif text-2xl font-semibold leading-snug text-navy md:text-3xl">
+              You didn&apos;t start a business to spend your weekends prospecting.
             </h2>
-            <p className="text-slate-600 text-base md:text-lg">
+          </div>
+        </div>
+        <div className="relative h-[55vh] min-h-[380px] w-full md:h-[62vh] md:min-h-[460px]">
+          <Image
+            src="/images/professional-office.jpg"
+            alt="Modern office with city view"
+            fill
+            className="object-cover"
+            sizes="100vw"
+          />
+        </div>
+        <div className="px-5 py-12 md:px-12">
+          <div className="mx-auto max-w-2xl">
+            <p className="text-sm font-light leading-relaxed tracking-wide text-[#666] md:text-base">
+              Hunting Google Maps. Copying business names into spreadsheets.
+              Searching LinkedIn for the owner. Writing the same generic email 50
+              times. Most of it leads nowhere — and every hour you spend
+              prospecting is an hour you&apos;re not doing the work you actually do.
+            </p>
+            <p className="mt-4 text-sm font-medium leading-relaxed tracking-wide text-navy md:text-base">
+              Zivlo gives you that hour back.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* How it works — 3 cards */}
+      <section className="bg-cream px-5 py-16 md:px-12 md:py-20">
+        <div className="mx-auto max-w-5xl">
+          <div className="mb-10 text-center">
+            <h2 className="font-serif text-3xl font-semibold text-navy">
+              How Zivlo works
+            </h2>
+            <p className="mt-3 text-sm font-light text-[#666] md:text-base">
+              From idea to outreach in under 60 seconds.
+            </p>
+          </div>
+          <div className="no-scrollbar -mx-5 flex snap-x-mandatory gap-4 overflow-x-auto px-5 pb-4 md:mx-0 md:grid md:grid-cols-3 md:overflow-visible md:px-0">
+            {[
+              {
+                num: "1",
+                icon: Search,
+                title: "Pick a niche to target",
+                text: 'Type the business type you want as a client and a UK location. For example: "Estate agents in Brighton" or "Solicitors in Manchester".',
+              },
+              {
+                num: "2",
+                icon: ClipboardList,
+                title: "Get sourced from Companies House UK leads",
+                text: "Zivlo pulls live UK business data — name, phone, website, director name — all sourced from Companies House.",
+              },
+              {
+                num: "3",
+                icon: Send,
+                title: "Send the perfect pitch",
+                text: "Each lead comes with a personalised pitch, written from a professional's perspective. Copy, send from your own email, win the client.",
+              },
+            ].map((step) => (
+              <div
+                key={step.num}
+                className="min-w-[280px] snap-start rounded-2xl border border-gray-100 bg-white p-6 shadow-sm md:min-w-0"
+              >
+                <div className="mb-4 flex items-center justify-between">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-navy text-sm font-semibold text-gold">
+                    {step.num}
+                  </span>
+                  <step.icon className="h-5 w-5 text-gray-300" />
+                </div>
+                <h3 className="mb-2 text-base font-semibold text-navy">
+                  {step.title}
+                </h3>
+                <p className="text-sm font-light leading-relaxed text-[#666]">
+                  {step.text}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Lead demo card */}
+      <section className="bg-cream px-5 py-16 md:px-12 md:py-20">
+        <div className="mx-auto max-w-lg">
+          <div className="mb-8 text-center">
+            <span className="inline-block rounded-full border border-gold px-4 py-1 text-[10px] font-medium uppercase tracking-[0.15em] text-gold">
+              Example
+            </span>
+            <h2 className="mt-4 font-serif text-3xl font-semibold text-navy">
+              This is what you&apos;ll get
+            </h2>
+            <p className="mt-3 text-sm font-light text-[#666]">
               Real lead. Real contact details. Real pitch — written for you, as
               a professional.
             </p>
           </div>
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
-            <div
-              className="px-6 py-5 flex items-center justify-between"
-              style={{ backgroundColor: navy }}
-            >
-              <div className="text-white">
-                <div className="text-lg md:text-xl font-bold">
-                  Brighton & Hove Estates
+
+          <div className="overflow-hidden rounded-2xl bg-navy shadow-xl">
+            <div className="border-b border-white/10 p-5">
+              <div className="flex items-start justify-between">
+                <div>
+                  <h3 className="font-serif text-lg font-semibold text-white">
+                    {DEMO_LEAD.companyName}
+                  </h3>
+                  <p className="mt-0.5 text-sm text-white/60">
+                    {DEMO_LEAD.businessType} · {DEMO_LEAD.location}
+                  </p>
                 </div>
-                <div className="text-xs md:text-sm text-slate-300">
-                  Estate Agent · Brighton
-                </div>
-              </div>
-              <div className="flex items-center gap-1">
-                <span className="text-xs md:text-sm text-slate-300 whitespace-nowrap">
-                  Inc. 2016
+                <span className="text-xs text-white/40">
+                  Inc. {DEMO_LEAD.incorporationYear}
                 </span>
               </div>
             </div>
-            <div className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div className="flex items-center gap-2 text-slate-700">
-                  <Phone size={16} className="text-slate-400" />
-                  01273 555 0142
-                </div>
-                <div className="flex items-center gap-2 text-slate-700">
-                  <Globe size={16} className="text-slate-400" />
-                  bhestates.co.uk
-                </div>
-                <div className="flex items-center gap-2 text-slate-700 col-span-2">
-                  <User size={16} className="text-slate-400" />
-                  James Whitford · Director
-                </div>
+
+            <div className="space-y-3 p-5">
+              <div className="flex items-center gap-3 text-sm">
+                <Phone className="h-4 w-4 shrink-0 text-gold" />
+                <span className="text-white/80">{DEMO_LEAD.phone}</span>
               </div>
-              <div className="border-t border-slate-100 pt-4">
-                <div className="text-xs uppercase tracking-wider text-slate-500 mb-2 font-semibold">
+              <div className="flex items-center gap-3 text-sm">
+                <Globe className="h-4 w-4 shrink-0 text-gold" />
+                <span className="text-white/80">{DEMO_LEAD.website}</span>
+              </div>
+              <div className="flex items-center gap-3 text-sm">
+                <User className="h-4 w-4 shrink-0 text-gold" />
+                <span className="text-white/80">
+                  {DEMO_LEAD.directorName} · {DEMO_LEAD.directorRole}
+                </span>
+              </div>
+
+              <div className="mt-4 border-t border-white/10 pt-4">
+                <p className="mb-2 text-[10px] uppercase tracking-[0.15em] text-white/40">
                   Personalised pitch
-                </div>
-                <div className="bg-slate-50 rounded-lg p-4 text-sm text-slate-700 leading-relaxed italic">
-                  "Hi James — I noticed Brighton & Hove Estates has been trading
-                  since 2016 and has a strong presence in the local Brighton
-                  market. I help independent estate agents redesign their
-                  websites to stand out on Rightmove and Zoopla. Would a quick
-                  chat next week be of interest?"
-                </div>
-                <button
-                  className="mt-3 w-full py-2.5 rounded-lg text-white font-semibold text-sm"
-                  style={{ backgroundColor: navy }}
-                >
-                  Copy message
-                </button>
+                </p>
+                <p className="text-sm font-light italic leading-relaxed text-white/85">
+                  &ldquo;{DEMO_LEAD.pitch}&rdquo;
+                </p>
               </div>
+            </div>
+
+            <div className="p-4 pt-0">
+              <button
+                type="button"
+                onClick={handleCopyPitch}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-white/10 py-3 text-sm font-medium text-white transition-all hover:bg-white/15 active:scale-95"
+              >
+                {copied ? (
+                  <>
+                    <Check className="h-4 w-4" />
+                    Copied
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-4 w-4" />
+                    Copy message
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>
       </section>
 
-      <section
-        className="px-5 md:px-12 py-16 md:py-24 text-white"
-        style={{ backgroundColor: navy }}
-      >
-        <div className="max-w-5xl mx-auto">
-          <h2
-            className="text-3xl md:text-5xl font-bold text-center mb-3 leading-tight"
-            style={{ fontFamily: "Georgia, serif", letterSpacing: "-0.02em" }}
-          >
+      {/* Dark features — navy bg (no dark-wave.jpg) */}
+      <section className="bg-navy">
+        <div className="mx-auto max-w-2xl px-5 pb-20 pt-16 md:px-12">
+          <h2 className="text-center font-serif text-3xl font-semibold text-white">
             Every lead, fully briefed
           </h2>
-          <p className="text-center text-slate-300 mb-14 text-base md:text-lg">
+          <p className="mb-10 mt-3 text-center text-sm font-light text-white/50">
             No half-information. Everything you need to reach out with
             confidence.
           </p>
-          <div className="grid md:grid-cols-2 gap-5">
+
+          <div className="space-y-6">
             {[
               {
+                icon: Check,
                 title: "Business name",
                 desc: "Real, sourced from Companies House UK limited companies — never sole traders, never made up.",
               },
               {
+                icon: Phone,
                 title: "Phone number",
-                desc: "Direct line where available, pulled from live Google Maps data.",
+                desc: "Direct line where available, pulled from live data.",
               },
               {
+                icon: Globe,
                 title: "Website",
                 desc: "Quick reference so you can size up their current site before pitching.",
               },
               {
+                icon: User,
                 title: "Director name",
                 desc: "Real human contact via Companies House — no guessing who to email.",
               },
               {
+                icon: MessageSquare,
                 title: "Personalised pitch",
-                desc: "A personalised pitch that mentions their business — written for you.",
+                desc: "A pitch that mentions their business — written for you.",
               },
               {
-                title: "sourced from Companies House business data",
-                desc: "Incorporation date, Google rating, website status — facts you can act on, not opinions you have to second-guess.",
+                icon: Calendar,
+                title: "Extra data",
+                desc: "Incorporation date, Google rating, website status — facts you can act on.",
               },
-            ].map((item, i) => (
-              <div key={i} className="flex gap-4 items-start">
-                <div
-                  className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
-                  style={{ backgroundColor: gold }}
-                >
-                  <Check size={16} style={{ color: navy }} strokeWidth={3} />
-                </div>
+            ].map((item) => (
+              <div key={item.title} className="flex gap-4">
+                <item.icon className="mt-0.5 h-5 w-5 shrink-0 text-gold" />
                 <div>
-                  <h3
-                    className="font-semibold text-lg mb-1"
-                    style={{ fontFamily: "Georgia, serif" }}
-                  >
+                  <h4 className="text-sm font-medium text-white">
                     {item.title}
-                  </h3>
-                  <p className="text-slate-300 text-sm leading-relaxed">
+                  </h4>
+                  <p className="mt-0.5 text-sm font-light leading-relaxed text-white/50">
                     {item.desc}
                   </p>
                 </div>
@@ -360,97 +460,23 @@ export default function HomePage({
         </div>
       </section>
 
-      <section className="px-5 md:px-12 py-16 md:py-24 bg-white">
-        <div className="max-w-4xl mx-auto">
-          <div className="text-center mb-12">
-            <h2
-              className="text-3xl md:text-5xl font-bold mb-4 leading-tight"
-              style={{
-                color: navy,
-                fontFamily: "Georgia, serif",
-                letterSpacing: "-0.02em",
-              }}
-            >
-              Outreach that stays on the right side of the law
+      {/* Pricing — soft, no upfront price push */}
+      <section className="bg-cream px-5 py-16 md:px-12 md:py-20">
+        <div className="mx-auto max-w-md">
+          <div className="mb-8 text-center">
+            <h2 className="font-serif text-3xl font-semibold text-navy">
+              One simple price
             </h2>
-            <p className="text-slate-600 text-base md:text-lg max-w-2xl mx-auto leading-relaxed">
-              Zivlo only ever returns UK limited companies. Sole traders and
-              partnerships — the ones that need consent before you can contact
-              them — are filtered out automatically. You reach out with
-              confidence, every time.
+            <p className="mt-2 text-sm font-light text-[#666]">
+              Win one client and Zivlo pays for itself for years.
             </p>
           </div>
-          <div className="grid md:grid-cols-3 gap-6">
-            {[
-              {
-                title: "Limited companies only",
-                desc: "Every lead is a sourced from Companies House UK limited company. Sole traders and partnerships are excluded automatically, so your outreach rests on a legitimate-interest basis.",
-              },
-              {
-                title: "Official Companies House data",
-                desc: "Names, directors and incorporation details come straight from the UK register. Accurate, current, and never scraped from questionable sources.",
-              },
-              {
-                title: "Built-in, not bolted-on",
-                desc: "You don’t have to check compliance yourself. Zivlo does it on every search, so it’s handled before you ever hit send.",
-              },
-            ].map((item, i) => (
-              <div key={i} className="flex gap-4 items-start">
-                <div
-                  className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
-                  style={{ backgroundColor: gold }}
-                >
-                  <Check size={16} style={{ color: navy }} strokeWidth={3} />
-                </div>
-                <div>
-                  <h3
-                    className="font-semibold text-lg mb-2"
-                    style={{ color: navy, fontFamily: "Georgia, serif" }}
-                  >
-                    {item.title}
-                  </h3>
-                  <p className="text-slate-600 text-sm leading-relaxed">
-                    {item.desc}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
 
-      <section className="px-5 md:px-12 py-16 md:py-24 bg-slate-50">
-        <div className="max-w-md mx-auto text-center">
-          <h2
-            className="text-3xl md:text-5xl font-bold mb-3 leading-tight"
-            style={{
-              color: navy,
-              fontFamily: "Georgia, serif",
-              letterSpacing: "-0.02em",
-            }}
-          >
-            One simple price
-          </h2>
-          <p className="text-slate-600 mb-10 text-base md:text-lg">
-            Win one client and Zivlo pays for itself for years.
-          </p>
-          <div
-            className="bg-white rounded-2xl p-8 md:p-10 shadow-2xl border-2"
-            style={{ borderColor: gold }}
-          >
-            <div className="mb-2">
-              <span
-                className="text-5xl md:text-6xl font-bold"
-                style={{ color: navy, fontFamily: "Georgia, serif" }}
-              >
-                £19.99
-              </span>
-              <span className="text-lg text-slate-500 font-medium">/month</span>
-            </div>
-            <p className="text-slate-600 mb-8 text-sm">
-              Everything included. Cancel anytime.
+          <div className="rounded-2xl border border-gray-100 bg-white p-8 shadow-sm">
+            <p className="mb-6 text-center text-sm font-light text-[#666]">
+              Everything included when you subscribe. Cancel anytime.
             </p>
-            <ul className="text-left space-y-3 mb-8">
+            <div className="space-y-3">
               {[
                 "Up to 5 searches per day",
                 "Up to 10 leads per search",
@@ -458,146 +484,104 @@ export default function HomePage({
                 "UK limited companies only (filters sole traders)",
                 "Search history saved",
                 "Cancel anytime",
-              ].map((feature, i) => (
-                <li
-                  key={i}
-                  className="flex items-center gap-3 text-slate-700 text-sm md:text-base"
-                >
-                  <Check
-                    size={18}
-                    style={{ color: gold }}
-                    strokeWidth={3}
-                    className="flex-shrink-0"
-                  />
-                  {feature}
-                </li>
+              ].map((item) => (
+                <div key={item} className="flex items-center gap-3">
+                  <Check className="h-4 w-4 shrink-0 text-gold" />
+                  <span className="text-sm font-light text-navy">{item}</span>
+                </div>
               ))}
-            </ul>
+            </div>
+
             <button
-              onClick={isLoggedIn ? handleDashboard : handleSignup}
-              className="block w-full py-4 rounded-lg font-semibold transition hover:opacity-90"
-              style={{ backgroundColor: gold, color: navy }}
+              type="button"
+              onClick={isLoggedIn ? handleDashboard : handleSearch}
+              className="mt-8 w-full rounded-full bg-gold py-4 text-sm font-medium text-navy shadow-md transition-transform active:scale-95"
             >
-              {isLoggedIn ? "Go to Dashboard" : "Start finding leads"}
+              {isLoggedIn ? "Go to Dashboard" : "Try one free search"}
             </button>
+            <p className="mt-3 text-center text-xs font-light text-[#999]">
+              No signup required to start. See pricing in FAQ.
+            </p>
           </div>
         </div>
       </section>
 
-      <section className="px-5 md:px-12 py-16 md:py-24 max-w-3xl mx-auto">
-        <h2
-          className="text-3xl md:text-5xl font-bold text-center mb-12 leading-tight"
-          style={{
-            color: navy,
-            fontFamily: "Georgia, serif",
-            letterSpacing: "-0.02em",
-          }}
-        >
-          Common questions
-        </h2>
-        <div className="space-y-3">
-          {[
-            {
-              q: "Are these real businesses or AI-generated?",
-              a: "Real. Every lead Zivlo returns is pulled from live UK business data — Google Maps for contact details, Companies House for director names. No fake businesses, no made-up directors.",
-            },
-            {
-              q: "How many leads do I get per search?",
-              a: "Up to 10 leads per search, depending on the business type and location. After PECR filtering (which removes sole traders and partnerships you can't legally cold-email), you'll typically see 5–10 high-quality leads per search.",
-            },
-            {
-              q: "Will my outreach be PECR-compliant?",
-              a: "Zivlo only returns UK limited companies, PLCs and LLPs — businesses generally permitted for B2B outreach under PECR rules. Sole traders and partnerships are filtered out automatically, and every pitch includes an opt-out line. You remain responsible for compliance with all applicable laws when sending your outreach.",
-            },
-            {
-              q: "Can I cancel anytime?",
-              a: "Yes. No contracts, no minimum term. Cancel from your dashboard in two clicks.",
-            },
-            {
-              q: "Will £19.99 pay for itself?",
-              a: "One website project for an estate agent or solicitor typically pays £1,000–£5,000. Win one client per year and Zivlo has paid for itself many times over.",
-            },
-          ].map((item, i) => (
-            <div
-              key={i}
-              className="border border-slate-200 rounded-xl overflow-hidden"
-            >
-              <button
-                onClick={() => setOpenFaq(openFaq === i ? null : i)}
-                className="w-full px-5 py-4 flex items-center justify-between text-left hover:bg-slate-50"
+      {/* FAQ — 6 questions */}
+      <section className="bg-cream px-5 py-16 md:px-12 md:py-20">
+        <div className="mx-auto max-w-2xl">
+          <h2 className="mb-10 text-center font-serif text-3xl font-semibold text-navy">
+            Common questions
+          </h2>
+          <div className="space-y-3">
+            {FAQ_ITEMS.map((item, i) => (
+              <div
+                key={item.q}
+                className="overflow-hidden rounded-xl border border-gray-100 bg-white"
               >
-                <span
-                  className="font-semibold text-base md:text-lg pr-4"
-                  style={{ color: navy }}
+                <button
+                  type="button"
+                  onClick={() => setOpenFaq(openFaq === i ? null : i)}
+                  className="flex w-full items-center justify-between p-4 text-left transition-colors active:bg-gray-50"
                 >
-                  {item.q}
-                </span>
-                <ChevronDown
-                  size={20}
-                  className="text-slate-400 flex-shrink-0 transition-transform"
-                  style={{
-                    transform: openFaq === i ? "rotate(180deg)" : "rotate(0)",
-                  }}
-                />
-              </button>
-              {openFaq === i && (
-                <div className="px-5 pb-5 text-slate-600 leading-relaxed text-sm md:text-base">
-                  {item.a}
-                </div>
-              )}
-            </div>
-          ))}
+                  <span className="pr-4 text-sm font-medium text-navy">
+                    {item.q}
+                  </span>
+                  <ChevronDown
+                    className="h-5 w-5 shrink-0 text-gray-400 transition-transform"
+                    style={{
+                      transform: openFaq === i ? "rotate(180deg)" : "rotate(0)",
+                    }}
+                  />
+                </button>
+                {openFaq === i && (
+                  <p className="px-4 pb-4 text-sm font-light leading-relaxed text-[#666]">
+                    {item.a}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
-      <section
-        className="px-5 md:px-12 py-16 md:py-24 text-white text-center"
-        style={{ backgroundColor: navy }}
-      >
-        <div className="max-w-2xl mx-auto">
-          <h2
-            className="text-3xl md:text-5xl font-bold mb-5 leading-tight"
-            style={{ fontFamily: "Georgia, serif", letterSpacing: "-0.02em" }}
-          >
+      {/* Footer CTA → /search */}
+      <footer className="bg-navy px-5 py-16 text-center md:px-12 md:py-20">
+        <div className="mx-auto max-w-xl">
+          <h2 className="font-serif text-3xl font-semibold text-white">
             Stop chasing.
-            <br />
-            <span style={{ color: gold, fontStyle: "italic" }}>
-              Start closing.
-            </span>
           </h2>
-          <p className="text-slate-300 text-base md:text-lg mb-10">
+          <p className="mt-1 font-serif text-3xl font-semibold italic text-gold">
+            Start closing.
+          </p>
+          <p className="mt-4 text-sm font-light text-white/60">
             Your next client is out there. Zivlo finds them.
           </p>
-          <button
-            onClick={isLoggedIn ? handleDashboard : handleSignup}
-            className="inline-flex items-center gap-2 px-8 md:px-10 py-4 rounded-lg font-bold text-base md:text-lg shadow-xl"
-            style={{ backgroundColor: gold, color: navy }}
-          >
-            {isLoggedIn ? "Go to Dashboard" : "Get Start finding leads — £19.99/month"} <ArrowRight size={20} />
-          </button>
-        </div>
-      </section>
 
-      <footer className="px-5 md:px-12 py-8 border-t border-slate-200 text-sm text-slate-500">
-        <div className="max-w-5xl mx-auto flex flex-col md:flex-row items-center justify-between gap-3">
-          <div>
-            © {new Date().getFullYear()} Zivlo. Operated by Dare to Accept
-            Limited.
-          </div>
-          <div className="flex gap-5">
-            {/* <Link href="/legal" className="hover:text-slate-900">
-              Terms
-            </Link> */}
-            <Link href="/privacy-policy" className="hover:text-slate-900">
+          <button
+            type="button"
+            onClick={isLoggedIn ? handleDashboard : handleSearch}
+            className="mt-8 inline-flex items-center gap-2 rounded-full bg-gold px-8 py-3.5 text-sm font-medium text-navy transition-transform active:scale-95"
+          >
+            Try one free search
+            <Send className="h-4 w-4" />
+          </button>
+          <p className="mt-3 text-xs font-light tracking-wide text-white/40">
+            No signup required. £19.99/month to unlock everything.
+          </p>
+        </div>
+
+        <div className="mx-auto mt-16 max-w-5xl border-t border-white/10 pt-8">
+          <div className="flex flex-col items-center justify-center gap-4 text-xs font-light text-white/40 md:flex-row md:gap-6">
+            <Link href="/privacy-policy" className="transition-colors hover:text-white/60">
               Privacy
             </Link>
-            <Link href="/terms-conditions" className="hover:text-slate-900">
+            <Link href="/terms-conditions" className="transition-colors hover:text-white/60">
               Terms of Service
             </Link>
-            {/* <a href="mailto:hello@zivlo.io" className="hover:text-slate-900">
-              Contact
-            </a> */}
           </div>
+          <p className="mt-4 text-xs font-light text-white/30">
+            © {new Date().getFullYear()} Zivlo. Operated by Dare to Accept Limited.
+          </p>
         </div>
       </footer>
     </div>

@@ -218,6 +218,7 @@ export async function GET(req: Request) {
         const { searchParams } = new URL(req.url);
         const businessType = searchParams.get("businessType");
         const location = searchParams.get("location");
+        const isFreeMode = searchParams.get("free") === "true";
         console.log('businessType', businessType);
         const auth = verifyAuth(req)
         console.log('businessType2  ', businessType);
@@ -273,7 +274,14 @@ export async function GET(req: Request) {
             }
         }
 
-        if (!userPitchContext || userPitchContext.trim() === "") {
+        if (isFreeMode) {
+            userPitchContext =
+                userPitchContext ||
+                "We provide professional B2B services to UK limited companies.";
+            userSenderName = userSenderName || "Your name";
+        }
+
+        if (!isFreeMode && (!userPitchContext || userPitchContext.trim() === "")) {
             return NextResponse.json(
                 {
                     error: "Please complete your pitch description in Profile Settings before generating pitches.",
@@ -588,7 +596,8 @@ export async function GET(req: Request) {
 
         return NextResponse.json({
             success: true,
-            results: finalResults,
+            results: isFreeMode ? finalResults.slice(0, 5) : finalResults,
+            freeMode: isFreeMode,
         });
     } catch (error: unknown) {
         console.error("Search error:", error);

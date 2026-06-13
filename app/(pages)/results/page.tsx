@@ -1,404 +1,438 @@
 "use client";
-import Logo from "@/components/Logo";
-import React, { useState, useEffect } from "react";
+
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
 import {
   ArrowLeft,
   Phone,
   Globe,
   User,
   Copy,
-  Check,
-  Mail,
-  MapPin,
-  Search,
-  Flag,
-  AlertCircle,
+  Download,
+  Lock,
+  Zap,
 } from "lucide-react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense } from "react";
-import Link from "next/link";
+import {
+  isInFreeMode,
+  isUserSubscribed,
+  truncatePitch,
+} from "@/lib/trial";
 
-function normalizeCopyText(value: unknown): string {
-  const text = typeof value === "string" ? value : String(value ?? "");
-  return text.trim();
+type NormalizedLead = {
+  id: string;
+  companyName: string;
+  businessType: string;
+  location: string;
+  incorporationYear: string;
+  phone: string;
+  website: string;
+  directorName: string;
+  pitch: string;
+};
+
+function normalizeLead(raw: Record<string, unknown>): NormalizedLead {
+  const director = String(raw.director ?? "");
+  return {
+    id: String(raw.id ?? raw.company_number ?? raw.name ?? Math.random()),
+    companyName: String(
+      raw.name ?? raw.businessName ?? raw.business_name ?? "Unknown"
+    ),
+    businessType: String(raw.type ?? raw.businessType ?? ""),
+    location: String(raw.location ?? ""),
+    incorporationYear: String(raw.incorporated ?? raw.incorporationYear ?? ""),
+    phone: String(raw.phone ?? ""),
+    website: String(raw.website ?? ""),
+    directorName: director.split("(")[0]?.trim() || director,
+    pitch: String(
+      raw.message ?? raw.personalisedPitch ?? raw.personalised_pitch ?? ""
+    ),
+  };
 }
 
-function copyViaHiddenTextarea(text: string): boolean {
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    /* fallback below */
+  }
   const textarea = document.createElement("textarea");
   textarea.value = text;
-  textarea.setAttribute("readonly", "");
-  textarea.style.position = "fixed";
-  textarea.style.top = "0";
-  textarea.style.left = "0";
-  textarea.style.opacity = "0";
-  textarea.style.pointerEvents = "none";
-  // Helps iOS not zoom and improves selection reliability.
-  textarea.style.fontSize = "16px";
-
   document.body.appendChild(textarea);
-
-  let ok = false;
-  try {
-    textarea.focus();
-    textarea.select();
-    textarea.setSelectionRange(0, text.length);
-    ok = document.execCommand("copy");
-  } catch {
-    ok = false;
-  } finally {
-    document.body.removeChild(textarea);
-  }
-
+  textarea.select();
+  const ok = document.execCommand("copy");
+  document.body.removeChild(textarea);
   return ok;
 }
 
-async function copyToClipboard(value: unknown): Promise<boolean> {
-  const text = normalizeCopyText(value);
-  if (!text) return false;
-
-  // Prefer modern API when it’s available and allowed.
-  if (navigator.clipboard?.writeText && window.isSecureContext) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      // Fall back below (notably on iOS Safari).
-    }
-  }
-
-  return copyViaHiddenTextarea(text);
-}
-
-export default function ResultsWrapper(props: any) {
-  return (
-    <Suspense fallback={
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900"></div>
-      </div>
-    }>
-      <Results {...props} />
-    </Suspense>
-  );
-}
-
-function Results({
-  onNavigate,
-  searchQuery = { type: "Estate agents", location: "Brighton" },
-  leads = null,
-}: {
-  onNavigate?: any;
-  searchQuery?: any;
-  leads?: any;
-}) {
-
+function ResultsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const [copiedId, setCopiedId] = useState<any>(null);
-  const [reportedIds, setReportedIds] = useState<any[]>([]);
-  const [user, setUser] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const businessType =
+    searchParams.get("type") ||
+    searchParams.get("businessType") ||
+    "";
+  const location = searchParams.get("location") || "";
+  const modeParam = searchParams.get("mode");
+  const searchId = searchParams.get("search_id");
 
-  const navy = "#0D1529";
-  const gold = "#C8A84B";
+  const [leads, setLeads] = useState<NormalizedLead[]>([]);
+  const [query, setQuery] = useState({ type: businessType, location });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // Sample data fallback
-  const [liveLeads, setLiveLeads] = useState<any[]>(leads || []);
-  const [liveQuery, setLiveQuery] = useState<any>(searchQuery);
+  const subscribed = isUserSubscribed();
+  const freeMode =
+    !subscribed && (modeParam === "free" || isInFreeMode());
 
   useEffect(() => {
-    const userData = localStorage.getItem("user");
-    if (userData) {
+    let cancelled = false;
+
+    async function loadResults() {
+      setLoading(true);
+      setError(null);
+
       try {
-        setUser(JSON.parse(userData));
-      } catch (e) {
-        // Ignore parse errors
-      }
-    }
-
-    const searchId = searchParams.get("search_id");
-
-    if (searchId) {
-      // Fetch leads from database
-      const fetchLeads = async () => {
-        try {
+        if (searchId) {
           const token = localStorage.getItem("auth_token");
           const res = await fetch(`/api/get-leads?search_id=${searchId}`, {
-            headers: {
-              Authorization: `Bearer ${token}`
-            }
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
           });
           const data = await res.json();
+          if (cancelled) return;
           if (data.success) {
-            setLiveLeads(data.leads);
-            setLiveQuery({
-              type: data.search.business_type,
-              location: data.search.location
+            setLeads((data.leads || []).map(normalizeLead));
+            setQuery({
+              type: data.search?.business_type || businessType,
+              location: data.search?.location || location,
             });
           } else {
-            console.error("Failed to fetch leads:", data.error);
+            setError(data.error || "Failed to load leads");
           }
-        } catch (err) {
-          console.error("Error fetching leads:", err);
-        } finally {
-          setIsLoading(false);
+          setLoading(false);
+          return;
         }
-      };
-      fetchLeads();
-    } else if (!leads) {
-      try {
+
+        if (freeMode && businessType && location) {
+          const res = await fetch(
+            `/api/search?businessType=${encodeURIComponent(businessType)}&location=${encodeURIComponent(location)}&free=true`
+          );
+          const data = await res.json();
+          if (cancelled) return;
+          if (data.success) {
+            const normalized = (data.results || []).map(normalizeLead);
+            setLeads(normalized);
+            setQuery({ type: businessType, location });
+            localStorage.setItem(
+              "zivlo_search_results",
+              JSON.stringify(data.results)
+            );
+            localStorage.setItem(
+              "zivlo_search_query",
+              JSON.stringify({ type: businessType, location })
+            );
+          } else {
+            setError(data.error || "Failed to find leads");
+          }
+          setLoading(false);
+          return;
+        }
+
         const cachedResults = localStorage.getItem("zivlo_search_results");
         const cachedQuery = localStorage.getItem("zivlo_search_query");
-        if (cachedResults) {
-          setLiveLeads(JSON.parse(cachedResults));
-        } else {
-          // Default beautiful premium preview data
-          // setLiveLeads([
-          //   {
-          //     id: 1,
-          //     name: "Brighton & Hove Estates",
-          //     type: "Estate Agent",
-          //     location: "Brighton",
-          //     phone: "01273 555 0142",
-          //     website: "bhestates.co.uk",
-          //     email: "info@bhestates.co.uk",
-          //     director: "James Whitford (HIGH confidence match)",
-          //     incorporated: "2016",
-          //     googleRating: "4.2 (38 reviews)",
-          //     websitePresent: true,
-          //     message: `Hi James — I noticed Brighton & Hove Estates has been trading since 2016 and has a strong presence in the local Brighton market. I help independent estate agents redesign their websites to stand out on Rightmove and Zoopla. Would a quick chat next week be of interest?`,
-          //   },
-          //   {
-          //     id: 2,
-          //     name: "Seaside Property Group Ltd",
-          //     type: "Estate Agent",
-          //     location: "Brighton",
-          //     phone: "01273 555 0298",
-          //     website: "seasideproperty.co.uk",
-          //     email: "hello@seasideproperty.co.uk",
-          //     director: "Sarah Mitchell (HIGH confidence match)",
-          //     incorporated: "2019",
-          //     googleRating: "4.6 (52 reviews)",
-          //     websitePresent: true,
-          //     message: `Hi Sarah — I noticed Seaside Property Group has been trading since 2019 and has a strong presence in the local Brighton market. I help independent estate agents redesign their websites to stand out on Rightmove and Zoopla. Would a quick chat next week be of interest?`,
-          //   }
-          // ]);
-        }
-        if (cachedQuery) {
-          setLiveQuery(JSON.parse(cachedQuery));
-        }
-      } catch (e) {
-        console.error("Failed loading cached leads", e);
-      } finally {
-        setIsLoading(false);
-      }
-    } else {
-      setLiveLeads(leads);
-      setIsLoading(false);
-    }
-  }, [leads]);
 
-  if (isLoading) {
+        if (cachedResults) {
+          const parsed = JSON.parse(cachedResults);
+          if (cancelled) return;
+          setLeads((Array.isArray(parsed) ? parsed : []).map(normalizeLead));
+        }
+
+        if (cachedQuery) {
+          const parsedQuery = JSON.parse(cachedQuery);
+          if (cancelled) return;
+          setQuery({
+            type: parsedQuery.type || businessType,
+            location: parsedQuery.location || location,
+          });
+        } else if (businessType || location) {
+          setQuery({ type: businessType, location });
+        }
+
+        if (
+          !cachedResults &&
+          !freeMode &&
+          subscribed &&
+          businessType &&
+          location
+        ) {
+          const token = localStorage.getItem("auth_token");
+          const res = await fetch(
+            `/api/search?businessType=${encodeURIComponent(businessType)}&location=${encodeURIComponent(location)}`,
+            { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+          );
+          const data = await res.json();
+          if (cancelled) return;
+          if (data.success) {
+            setLeads((data.results || []).map(normalizeLead));
+            localStorage.setItem(
+              "zivlo_search_results",
+              JSON.stringify(data.results)
+            );
+            localStorage.setItem(
+              "zivlo_search_query",
+              JSON.stringify({ type: businessType, location })
+            );
+          } else {
+            setError(data.error || "Failed to find leads");
+          }
+        }
+      } catch {
+        if (!cancelled) setError("Something went wrong loading results.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    const timer = setTimeout(loadResults, freeMode ? 800 : 0);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [businessType, location, freeMode, searchId, subscribed]);
+
+  const handleCopyPitch = async (lead: NormalizedLead) => {
+    if (freeMode) return;
+    const ok = await copyToClipboard(lead.pitch);
+    if (ok) {
+      setCopiedId(lead.id);
+      setTimeout(() => setCopiedId(null), 2000);
+    }
+  };
+
+  const handleSubscribe = () => {
+    const token = localStorage.getItem("auth_token");
+    router.push(token ? "/paywall" : "/signup");
+  };
+
+  const displayLocation = query.location || location || "your area";
+  const displayType = query.type || businessType || "Leads";
+
+  if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mb-4"></div>
-        <div className="text-slate-500 font-medium">Loading your leads...</div>
+      <div className="mx-auto flex min-h-screen max-w-[430px] flex-col items-center justify-center bg-cream px-6">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-gold border-t-transparent" />
+        <p className="mt-4 text-sm font-light text-[#666]">
+          Finding leads in {displayLocation}…
+        </p>
+        <p className="mt-1 text-xs font-light text-[#999]">
+          Cross-referencing Companies House
+        </p>
       </div>
     );
   }
 
-  const handleCopy = async (id: any, message: any) => {
-    const ok = await copyToClipboard(message);
-    if (!ok) return;
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
-  };
-
-  const handleReport = (id: any) => {
-    if (reportedIds.includes(id)) return;
-    setReportedIds([...reportedIds, id]);
-  };
+  if (error) {
+    return (
+      <div className="mx-auto flex min-h-screen max-w-[430px] flex-col items-center justify-center bg-cream px-6 text-center">
+        <p className="text-sm text-navy">{error}</p>
+        <Link
+          href="/search"
+          className="mt-4 text-sm font-medium text-gold underline"
+        >
+          Back to search
+        </Link>
+      </div>
+    );
+  }
 
   return (
-    <div
-      className="min-h-screen bg-slate-50"
-      style={{ fontFamily: '"Helvetica Neue", Helvetica, Arial, sans-serif' }}
-    >
-      {/* NAVBAR */}
-      <nav className="bg-white border-b border-slate-100 px-5 py-3 md:px-12 md:py-4 flex items-center justify-between sticky top-0 z-50">
-        <Link
-          href="/appscreen"
-          className="flex items-center gap-2 text-sm font-medium hover:opacity-70 transition whitespace-nowrap"
-          style={{ color: navy }}
-        >
-          <ArrowLeft size={18} />
-          <span className="hidden sm:inline">New search</span>
-        </Link>
-
-        <Link href="/"><Logo /></Link>
-
-        <Link
-          href="/dashboard"
-          className="text-xs md:text-sm text-white px-3 py-1.5 md:px-4 md:py-2 rounded-lg font-semibold shadow-md whitespace-nowrap"
-          style={{ backgroundColor: navy }}
-        >
-          Dashboard
-        </Link>
-      </nav>
-
-      {/* HEADER */}
-      <div className="px-5 md:px-12 py-6 md:py-8 max-w-4xl mx-auto">
-        <div className="flex items-center gap-2 text-sm text-slate-500 mb-2">
-          <Search size={14} />
-          Search results
+    <div className="mx-auto min-h-screen max-w-[430px] bg-cream">
+      <header className="bg-navy px-5 pb-5 pt-4">
+        <div className="mb-4 flex items-center gap-3">
+          <Link
+            href="/search"
+            className="flex h-10 w-10 items-center justify-center text-white/70 active:text-white"
+            aria-label="Back to search"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </Link>
+          <div>
+            <h1 className="font-serif text-base font-semibold text-white">
+              {displayType} in {displayLocation}
+            </h1>
+            <p className="text-xs font-light text-white/50">
+              {leads.length} leads found
+            </p>
+          </div>
         </div>
 
-        <h1
-          className="text-2xl md:text-4xl font-bold mb-2 leading-tight"
-          style={{
-            color: navy,
-            fontFamily: "Georgia, serif",
-            letterSpacing: "-0.02em",
-          }}
-        >
-          {liveQuery.type || liveQuery.businessType || "Estate agents"} in {liveQuery.location || "Brighton"}
-        </h1>
-
-        <p className="text-slate-600">
-          Found{" "}
-          <span className="font-semibold" style={{ color: navy }}>
-            {liveLeads.length} leads
-          </span>{" "}
-          — UK limited companies only.
-        </p>
-
-        {user && !user.sender_name && (
-          <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 flex flex-col sm:flex-row items-start sm:items-center gap-3 shadow-sm mt-4">
-            <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-600 shrink-0">
-              <AlertCircle size={18} />
-            </div>
-            <div className="flex-1">
-              <h4 className="text-sm font-bold text-amber-900">Set your sender name</h4>
-              <p className="text-xs text-amber-700 mt-0.5 leading-relaxed">
-                Your cold emails are currently signing off with the literal <strong>"[Your name]"</strong> placeholder. Set your sender name in your profile to auto-fill this.
-              </p>
-            </div>
-            <Link
-              href="/dashboard"
-              className="px-3.5 py-1.5 bg-amber-600 text-white rounded-lg text-xs font-semibold hover:bg-amber-700 transition shadow-sm shrink-0 mt-2 sm:mt-0 inline-block"
+        <div className="flex gap-2">
+          {subscribed && !freeMode && leads.length > 0 && (
+            <button
+              type="button"
+              className="flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-xs text-white/70"
+              onClick={() => {
+                const header = "Company,Phone,Website,Director,Pitch\n";
+                const rows = leads
+                  .map((l) =>
+                    [
+                      l.companyName,
+                      l.phone,
+                      l.website,
+                      l.directorName,
+                      `"${l.pitch.replace(/"/g, '""')}"`,
+                    ].join(",")
+                  )
+                  .join("\n");
+                const blob = new Blob([header + rows], { type: "text/csv" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `zivlo-leads-${displayLocation.replace(/\s/g, "-")}.csv`;
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
             >
-              Fix now
-            </Link>
+              <Download className="h-3.5 w-3.5" />
+              Export CSV
+            </button>
+          )}
+          {freeMode && (
+            <span className="flex items-center gap-1.5 rounded-full bg-gold/20 px-3 py-1.5 text-xs text-gold">
+              <Lock className="h-3 w-3" />
+              Preview mode — subscribe to unlock
+            </span>
+          )}
+        </div>
+      </header>
+
+      <div className="space-y-3 px-4 pb-8 pt-4">
+        {leads.length === 0 && (
+          <div className="rounded-xl border border-gray-100 bg-white p-6 text-center text-sm text-[#666]">
+            No leads found. Try a different search.
+          </div>
+        )}
+
+        {leads.map((lead) => (
+          <article
+            key={lead.id}
+            className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm"
+          >
+            <div className="p-4">
+              <h3 className="text-base font-semibold text-navy">
+                {lead.companyName}
+              </h3>
+              <p className="mt-0.5 text-xs font-light text-[#666]">
+                {lead.businessType} · {lead.location}
+                {lead.incorporationYear
+                  ? ` · Inc. ${lead.incorporationYear}`
+                  : ""}
+              </p>
+
+              <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
+                {lead.phone && (
+                  <a
+                    href={`tel:${lead.phone.replace(/\s/g, "")}`}
+                    className="flex items-center gap-1.5 text-xs text-[#666]"
+                  >
+                    <Phone className="h-3 w-3 text-gold" />
+                    {lead.phone}
+                  </a>
+                )}
+                {lead.website && (
+                  <span className="flex items-center gap-1.5 text-xs text-[#666]">
+                    <Globe className="h-3 w-3 text-gold" />
+                    {lead.website}
+                  </span>
+                )}
+              </div>
+
+              <div className="mt-2 flex items-center gap-1.5">
+                <User className="h-3 w-3 text-gold" />
+                {freeMode ? (
+                  <span className="flex items-center gap-1.5 text-xs text-[#999]">
+                    <Lock className="h-3 w-3" />
+                    Director on file — subscribe to view
+                  </span>
+                ) : (
+                  <span className="text-xs font-medium text-navy">
+                    {lead.directorName || "Director on file"}
+                  </span>
+                )}
+              </div>
+
+              <div className="mt-3 border-t border-gray-50 pt-3">
+                <p className="mb-1.5 text-[10px] uppercase tracking-[0.15em] text-[#999]">
+                  Personalised pitch
+                </p>
+                {freeMode ? (
+                  <p className="line-clamp-2 text-sm font-light italic leading-relaxed text-[#444]">
+                    &ldquo;{truncatePitch(lead.pitch)}&rdquo;
+                  </p>
+                ) : (
+                  <p className="text-sm font-light italic leading-relaxed text-[#444]">
+                    &ldquo;{lead.pitch}&rdquo;
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {!freeMode && subscribed && (
+              <div className="flex gap-2 px-4 pb-4">
+                <button
+                  type="button"
+                  onClick={() => handleCopyPitch(lead)}
+                  className="flex-1 rounded-lg bg-navy py-2.5 text-xs font-medium text-white active:scale-[0.98]"
+                >
+                  {copiedId === lead.id ? "Copied ✓" : "Copy pitch"}
+                </button>
+              </div>
+            )}
+          </article>
+        ))}
+
+        {freeMode && leads.length > 0 && (
+          <div className="rounded-xl bg-navy p-5 text-center">
+            <Zap className="mx-auto mb-2 h-6 w-6 text-gold" />
+            <p className="text-sm font-medium text-white">
+              Want the full picture?
+            </p>
+            <p className="mb-4 mt-1 text-xs font-light text-white/60">
+              Subscribe to see director names, full pitches, and run unlimited
+              searches.
+            </p>
+            <button
+              type="button"
+              onClick={handleSubscribe}
+              className="w-full rounded-xl bg-gold py-3 text-sm font-medium text-navy active:scale-[0.98]"
+            >
+              Subscribe — £19.99/month
+            </button>
+            <p className="mt-2 text-[10px] font-light text-white/30">
+              Cancel anytime
+            </p>
           </div>
         )}
       </div>
+    </div>
+  );
+}
 
-      {/* LEADS */}
-      <div className="px-5 md:px-12 pb-16 max-w-4xl mx-auto space-y-5">
-        {liveLeads.map((lead: any) => (
-          <div
-            key={lead.id || lead.name}
-            className="bg-white rounded-2xl shadow-md border border-slate-200 overflow-hidden"
-          >
-            {/* CARD HEADER */}
-            <div
-              className="px-6 py-5 flex items-start justify-between"
-              style={{ backgroundColor: navy }}
-            >
-              <div className="text-white">
-                <div className="text-lg font-bold">{lead.name || lead.businessName}</div>
-                <div className="text-xs text-slate-300 flex gap-2 mt-1">
-                  <span>{lead.type}</span>
-                  <span>·</span>
-                  <span className="flex items-center gap-1">
-                    <MapPin size={12} />
-                    {lead.location || liveQuery.location}
-                  </span>
-                </div>
-              </div>
-
-              <div className="text-xs text-slate-300">
-                Inc. {lead.incorporated}
-              </div>
-            </div>
-
-            {/* CARD BODY */}
-            <div className="p-5 space-y-4">
-              <div className="grid sm:grid-cols-2 gap-3 text-sm text-slate-700">
-                <a href={`tel:${lead.phone}`} className="flex gap-2 items-center hover:text-slate-900 transition">
-                  <Phone size={16} className="text-slate-500 shrink-0" />
-                  <span className="truncate">{lead.phone}</span>
-                </a>
-
-                <a href={`https://${lead.website}`} target="_blank" rel="noopener noreferrer" className="flex gap-2 items-center hover:text-slate-900 transition">
-                  <Globe size={16} className="text-slate-500 shrink-0" />
-                  <span className="truncate">{lead.website}</span>
-                </a>
-
-                <a href={`mailto:${lead.email}`} className="flex gap-2 items-center hover:text-slate-900 transition">
-                  <Mail size={16} className="text-slate-500 shrink-0" />
-                  <span className="truncate">{lead.email}</span>
-                </a>
-
-                <div className="flex gap-2 items-center">
-                  <User size={16} className="text-slate-500 shrink-0" />
-                  <span className="truncate">{lead.director}</span>
-                </div>
-              </div>
-
-              {/* MESSAGE */}
-              <div className="bg-slate-50 p-4 rounded-lg text-sm whitespace-pre-line leading-relaxed italic text-slate-700">
-                "{lead.message || lead.personalisedPitch}"
-              </div>
-
-              {/* ACTIONS */}
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleCopy(lead.id, lead.message || lead.personalisedPitch)}
-                  className="flex-1 py-3 rounded-lg text-white font-semibold flex items-center justify-center gap-2 touch-manipulation"
-                  style={{
-                    backgroundColor: copiedId === lead.id ? gold : navy,
-                  }}
-                >
-                  {copiedId === lead.id ? (
-                    <>
-                      <Check size={16} />
-                      Copied
-                    </>
-                  ) : (
-                    <>
-                      <Copy size={16} />
-                      Copy message
-                    </>
-                  )}
-                </button>
-
-                <button
-                  onClick={() => handleReport(lead.id)}
-                  disabled={reportedIds.includes(lead.id)}
-                  className="px-4 py-3 rounded-lg border flex items-center gap-2"
-                >
-                  <Flag size={16} />
-                  {reportedIds.includes(lead.id) ? "Reported" : "Flag"}
-                </button>
-              </div>
-            </div>
-          </div>
-        ))}
-
-        {/* CTA */}
-        <div className="text-center pt-8">
-          <Link
-            href="/appscreen"
-            className="px-8 py-3 rounded-lg text-white flex items-center gap-2 mx-auto"
-            style={{ backgroundColor: navy }}
-          >
-            <Search size={18} />
-            Run another search
-          </Link>
+export default function ResultsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="mx-auto flex min-h-screen max-w-[430px] items-center justify-center bg-cream">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-gold border-t-transparent" />
         </div>
-      </div>
-    </div >
+      }
+    >
+      <ResultsContent />
+    </Suspense>
   );
 }
