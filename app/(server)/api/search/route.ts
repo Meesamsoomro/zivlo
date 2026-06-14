@@ -2,9 +2,83 @@ import { NextResponse } from "next/server";
 import axios from "axios";
 import jwt from "jsonwebtoken";
 import { getSupabaseClient, verifyAuth } from "@/lib/auth";
+import type { SearchLead } from "@/lib/searchTypes";
 
 const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY;
 const CH_API_KEY = process.env.CH_API_KEY;
+
+// ─── Free Trial config ───
+// Anonymous visitors get ONE free search with restricted data.
+const FREE_LEAD_COUNT = 5;
+const SUBSCRIBED_LEAD_COUNT = 10;
+const TRIAL_COOKIE = "zivlo_trial_used";
+// Default service context used only for the free-trial preview pitches,
+// since anonymous visitors have no saved pitch_context.
+const FREE_TRIAL_PITCH_CONTEXT = "I help local businesses win more customers";
+
+// Returns the first `count` sentences of a pitch (used to truncate the
+// preview pitch shown to free-trial users). Newlines are flattened first so
+// the greeting line doesn't get mistaken for the whole pitch, and the body +
+// sign-off after the first `count` sentences are dropped.
+function truncatePitch(text: string, count = 2): string {
+  if (!text) return "";
+  const flat = text.replace(/\s+/g, " ").trim();
+  if (!flat) return "";
+  const sentences = flat.match(/[^.!?]+[.!?]+/g);
+  if (!sentences || sentences.length === 0) return flat;
+  return sentences.slice(0, count).join(" ").trim();
+}
+
+// Forces every pitch to open with the director's first name — never the
+// company, location or business type (e.g. avoids "Hi London" / "Hi Solicitors"
+// if the model drifts or no director is known). Rebuilds only the opening
+// greeting and keeps the rest of the pitch intact.
+function enforceGreeting(pitch: string, firstName: string): string {
+  if (!pitch) return pitch;
+  const raw = (firstName || "").trim();
+  // Normalise an all-caps first name (e.g. "JAMES" → "James").
+  const name = raw
+    ? raw === raw.toUpperCase()
+      ? raw.charAt(0) + raw.slice(1).toLowerCase()
+      : raw
+    : "there";
+
+  const nlIndex = pitch.indexOf("\n");
+  const firstLine = nlIndex === -1 ? pitch : pitch.slice(0, nlIndex);
+  const rest = nlIndex === -1 ? "" : pitch.slice(nlIndex);
+
+  if (/^\s*(?:hi|hello|hey|dear|greetings)\b/i.test(firstLine)) {
+    // Find the first greeting separator (prefer dash/colon/comma — never a
+    // plain hyphen, which can appear inside names like "Anne-Marie").
+    let sepIdx = -1;
+    for (const ch of ["—", "–", ":", ","]) {
+      const i = firstLine.indexOf(ch);
+      if (i !== -1 && (sepIdx === -1 || i < sepIdx)) sepIdx = i;
+    }
+    if (sepIdx !== -1) {
+      const tail = firstLine.slice(sepIdx + 1).trim();
+      return `${`Hi ${name} — ${tail}`.trimEnd()}${rest}`;
+    }
+    return `Hi ${name} —${rest}`;
+  }
+
+  // No greeting at all → prepend one.
+  return `Hi ${name} — ${pitch.trimStart()}`;
+}
+
+// Reads a single cookie value from a raw Cookie header.
+function readCookie(cookieHeader: string | null, name: string): string | null {
+  if (!cookieHeader) return null;
+  const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${name}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+// Best-effort client IP (for free-trial abuse logging only).
+function getClientIp(req: Request): string {
+  const fwd = req.headers.get("x-forwarded-for");
+  if (fwd) return fwd.split(",")[0].trim();
+  return req.headers.get("x-real-ip") || "";
+}
 
 const PITCH_SYSTEM_PROMPT = `You are a professional pitch writer for B2B outreach. Your job is to write short, personalised cold email pitches from a service provider to potential client businesses.
 
@@ -41,139 +115,143 @@ RULES:
 9. CRITICAL: NO CONVERSATIONAL TEXT OR REFUSALS. Output ONLY the raw email pitch for each lead. NEVER refuse. Start directly with "Hi [Name] —".`;
 
 function toTitleCase(str: string) {
-    if (!str) return "";
-    return str
-        .toLowerCase()
-        .split(" ")
-        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-        .join(" ");
+  if (!str) return "";
+  return str
+    .toLowerCase()
+    .split(" ")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
 }
 
 type LeadDraft = {
-    index: number;
-    companyNumber: string;
-    friendlyBusinessName: string;
-    singleType: string;
-    location: string;
-    phone: string;
-    websiteDomain: string;
-    directorFullName: string;
-    directorFirstName: string;
-    incorporatedYear: string;
-    companyStatus: string;
-    googleRating: string;
-    business: {
-        formatted_phone_number?: string;
-        rating?: number;
-        user_ratings_total?: number;
-    };
+  index: number;
+  companyNumber: string;
+  friendlyBusinessName: string;
+  singleType: string;
+  location: string;
+  phone: string;
+  websiteDomain: string;
+  directorFullName: string;
+  directorFirstName: string;
+  incorporatedYear: string;
+  companyStatus: string;
+  googleRating: string;
+  business: {
+    formatted_phone_number?: string;
+    rating?: number;
+    user_ratings_total?: number;
+  };
 };
 
 function buildTemplatePitch(
-    lead: LeadDraft,
-    userPitchContext: string,
-    userSenderName: string,
-    businessType: string,
-    location: string,
-    variant: number
+  lead: LeadDraft,
+  userPitchContext: string,
+  userSenderName: string,
+  businessType: string,
+  location: string,
+  variant: number,
 ): string {
-    const { directorFirstName, friendlyBusinessName, incorporatedYear } = lead;
-    const firstName = directorFirstName || "there";
-    const senderFirst = (userSenderName || "[Your name]").split(" ")[0];
-    const yearClause = incorporatedYear
-        ? ` since ${incorporatedYear}`
-        : "";
+  const { directorFirstName, friendlyBusinessName, incorporatedYear } = lead;
+  const firstName = directorFirstName || "there";
+  const senderFirst = (userSenderName || "[Your name]").split(" ")[0];
+  const yearClause = incorporatedYear ? ` since ${incorporatedYear}` : "";
 
-    const openings = [
-        `Hi ${firstName} — ${friendlyBusinessName} caught my eye${yearClause ? ` as a firm that's been operating${yearClause}` : ""} in ${location}.`,
-        `Hi ${firstName} — I came across ${friendlyBusinessName} while looking at ${businessType.toLowerCase()} in ${location}${yearClause ? ` and noticed you've been established${yearClause}` : ""}.`,
-        `Hi ${firstName} — quick note about ${friendlyBusinessName}: from what I can see you're doing solid work locally in ${location}.`,
-        `Hi ${firstName} — ${friendlyBusinessName} stood out among ${businessType.toLowerCase()} in ${location}${yearClause ? `, particularly given your track record${yearClause}` : ""}.`,
-        `Hi ${firstName} — I wanted to reach out to ${friendlyBusinessName} because your presence in the ${location} market${yearClause ? ` (trading${yearClause})` : ""} suggests you're serious about growth.`,
-        `Hi ${firstName} — while reviewing ${businessType.toLowerCase()} in ${location}, ${friendlyBusinessName} seemed like a strong fit for what I do.`,
-        `Hi ${firstName} — ${friendlyBusinessName} looks well positioned in ${location}${yearClause ? `, and your history${yearClause} is impressive` : ""}.`,
-        `Hi ${firstName} — I specialise in supporting ${businessType.toLowerCase()} like ${friendlyBusinessName} in ${location}.`,
-        `Hi ${firstName} — there's something about how ${friendlyBusinessName} presents itself in ${location} that made me think we should connect.`,
-        `Hi ${firstName} — I help ${businessType.toLowerCase()} in ${location}, and ${friendlyBusinessName}${yearClause ? ` (est. ${incorporatedYear})` : ""} came up as a business worth speaking to.`,
-    ];
+  const openings = [
+    `Hi ${firstName} — ${friendlyBusinessName} caught my eye${yearClause ? ` as a firm that's been operating${yearClause}` : ""} in ${location}.`,
+    `Hi ${firstName} — I came across ${friendlyBusinessName} while looking at ${businessType.toLowerCase()} in ${location}${yearClause ? ` and noticed you've been established${yearClause}` : ""}.`,
+    `Hi ${firstName} — quick note about ${friendlyBusinessName}: from what I can see you're doing solid work locally in ${location}.`,
+    `Hi ${firstName} — ${friendlyBusinessName} stood out among ${businessType.toLowerCase()} in ${location}${yearClause ? `, particularly given your track record${yearClause}` : ""}.`,
+    `Hi ${firstName} — I wanted to reach out to ${friendlyBusinessName} because your presence in the ${location} market${yearClause ? ` (trading${yearClause})` : ""} suggests you're serious about growth.`,
+    `Hi ${firstName} — while reviewing ${businessType.toLowerCase()} in ${location}, ${friendlyBusinessName} seemed like a strong fit for what I do.`,
+    `Hi ${firstName} — ${friendlyBusinessName} looks well positioned in ${location}${yearClause ? `, and your history${yearClause} is impressive` : ""}.`,
+    `Hi ${firstName} — I specialise in supporting ${businessType.toLowerCase()} like ${friendlyBusinessName} in ${location}.`,
+    `Hi ${firstName} — there's something about how ${friendlyBusinessName} presents itself in ${location} that made me think we should connect.`,
+    `Hi ${firstName} — I help ${businessType.toLowerCase()} in ${location}, and ${friendlyBusinessName}${yearClause ? ` (est. ${incorporatedYear})` : ""} came up as a business worth speaking to.`,
+  ];
 
-    const ctas = [
-        "Would you be open to a brief call next week?",
-        "Could we arrange a short chat sometime this week?",
-        "Happy to send more detail if a quick conversation would be useful.",
-        "Would a 15-minute call be worth your time?",
-        "If this resonates, I'd welcome a quick conversation.",
-    ];
+  const ctas = [
+    "Would you be open to a brief call next week?",
+    "Could we arrange a short chat sometime this week?",
+    "Happy to send more detail if a quick conversation would be useful.",
+    "Would a 15-minute call be worth your time?",
+    "If this resonates, I'd welcome a quick conversation.",
+  ];
 
-    const opening = openings[variant % openings.length];
-    const cta = ctas[variant % ctas.length];
-    const bridge = userPitchContext
-        ? `${userPitchContext}, and I focus on helping ${businessType.toLowerCase()} with the kind of work that supports day-to-day operations.`
-        : `I work with ${businessType.toLowerCase()} on practical improvements that support growth.`;
+  const opening = openings[variant % openings.length];
+  const cta = ctas[variant % ctas.length];
+  const bridge = userPitchContext
+    ? `${userPitchContext}, and I focus on helping ${businessType.toLowerCase()} with the kind of work that supports day-to-day operations.`
+    : `I work with ${businessType.toLowerCase()} on practical improvements that support growth.`;
 
-    return `${opening} ${bridge} ${cta}\n\nBest regards,\n${senderFirst}`;
+  return `${opening} ${bridge} ${cta}\n\nBest regards,\n${senderFirst}`;
 }
 
-function parseBatchPitchResponse(text: string, expectedCount: number): string[] | null {
-    const trimmed = text.trim();
-    const jsonMatch = trimmed.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) return null;
+function parseBatchPitchResponse(
+  text: string,
+  expectedCount: number,
+): string[] | null {
+  const trimmed = text.trim();
+  const jsonMatch = trimmed.match(/\[[\s\S]*\]/);
+  if (!jsonMatch) return null;
 
-    try {
-        const parsed = JSON.parse(jsonMatch[0]) as Array<{ index?: number; pitch?: string }>;
-        if (!Array.isArray(parsed) || parsed.length === 0) return null;
+  try {
+    const parsed = JSON.parse(jsonMatch[0]) as Array<{
+      index?: number;
+      pitch?: string;
+    }>;
+    if (!Array.isArray(parsed) || parsed.length === 0) return null;
 
-        const pitches: string[] = new Array(expectedCount).fill("");
-        for (const item of parsed) {
-            if (
-                typeof item.index === "number" &&
-                item.index >= 0 &&
-                item.index < expectedCount &&
-                typeof item.pitch === "string"
-            ) {
-                pitches[item.index] = item.pitch.trim();
-            }
-        }
-
-        if (pitches.every((p) => p.length > 0)) {
-            return pitches;
-        }
-        return null;
-    } catch {
-        return null;
+    const pitches: string[] = new Array(expectedCount).fill("");
+    for (const item of parsed) {
+      if (
+        typeof item.index === "number" &&
+        item.index >= 0 &&
+        item.index < expectedCount &&
+        typeof item.pitch === "string"
+      ) {
+        pitches[item.index] = item.pitch.trim();
+      }
     }
+
+    if (pitches.every((p) => p.length > 0)) {
+      return pitches;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 async function generateBatchPitches(
-    leads: LeadDraft[],
-    userPitchContext: string,
-    userSenderName: string,
-    businessType: string,
-    location: string
+  leads: LeadDraft[],
+  userPitchContext: string,
+  userSenderName: string,
+  businessType: string,
+  location: string,
 ): Promise<string[] | null> {
-    const claudeKey = process.env.CLAUDE_API_KEY;
-    if (!claudeKey || leads.length === 0) return null;
+  const claudeKey = process.env.CLAUDE_API_KEY;
+  if (!claudeKey || leads.length === 0) return null;
 
-    const senderFirst = (userSenderName || "[Name]").split(" ")[0];
-    const leadList = leads
-        .map(
-            (l) =>
-                `[${l.index}] Director: ${l.directorFirstName || "Unknown"} | Business: ${l.friendlyBusinessName} | Industry: ${businessType} | Inc. Year: ${l.incorporatedYear || "unknown"} | Location: ${location}`
-        )
-        .join("\n");
+  const senderFirst = (userSenderName || "[Name]").split(" ")[0];
+  const leadList = leads
+    .map(
+      (l) =>
+        `[${l.index}] Director: ${l.directorFirstName || "Unknown"} | Business: ${l.friendlyBusinessName} | Industry: ${businessType} | Inc. Year: ${l.incorporatedYear || "unknown"} | Location: ${location}`,
+    )
+    .join("\n");
 
-    try {
-        const claudeRes = await axios.post(
-            "https://api.anthropic.com/v1/messages",
-            {
-                model: "claude-haiku-4-5",
-                max_tokens: 8192,
-                temperature: 0.8,
-                system: PITCH_SYSTEM_PROMPT,
-                messages: [
-                    {
-                        role: "user",
-                        content: `Generate exactly ${leads.length} pitches for this batch.
+  try {
+    const claudeRes = await axios.post(
+      "https://api.anthropic.com/v1/messages",
+      {
+        model: "claude-haiku-4-5",
+        max_tokens: 8192,
+        temperature: 0.8,
+        system: PITCH_SYSTEM_PROMPT,
+        messages: [
+          {
+            role: "user",
+            content: `Generate exactly ${leads.length} pitches for this batch.
 
 Sender Details:
 - pitch_context: ${userPitchContext}
@@ -186,424 +264,534 @@ OUTPUT FORMAT: Return ONLY a valid JSON array with no markdown fences, no commen
 {"index": <number matching lead index above>, "pitch": "<full email text>"}
 
 Before finishing, verify every opening line uses a different structure and none repeat banned phrases from the system rules.`,
-                    },
-                ],
-            },
-            {
-                headers: {
-                    "x-api-key": claudeKey,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                timeout: 45000,
-            }
-        );
+          },
+        ],
+      },
+      {
+        headers: {
+          "x-api-key": claudeKey,
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json",
+        },
+        timeout: 45000,
+      },
+    );
 
-        const text = claudeRes.data?.content?.[0]?.text;
-        if (!text) return null;
+    const text = claudeRes.data?.content?.[0]?.text;
+    if (!text) return null;
 
-        return parseBatchPitchResponse(text, leads.length);
-    } catch (claudeErr: unknown) {
-        const err = claudeErr as { response?: { data?: unknown }; message?: string };
-        console.error(
-            "Claude batch API error:",
-            err?.response?.data || err?.message
-        );
-        return null;
-    }
+    return parseBatchPitchResponse(text, leads.length);
+  } catch (claudeErr: unknown) {
+    const err = claudeErr as {
+      response?: { data?: unknown };
+      message?: string;
+    };
+    console.error(
+      "Claude batch API error:",
+      err?.response?.data || err?.message,
+    );
+    return null;
+  }
 }
 
 export async function GET(req: Request) {
-    try {
-        const { searchParams } = new URL(req.url);
-        const businessType = searchParams.get("businessType");
-        const location = searchParams.get("location");
-        const isFreeMode = searchParams.get("free") === "true";
-        console.log('businessType', businessType);
-        const auth = verifyAuth(req)
-        console.log('businessType2  ', businessType);
-        if (!businessType || !location) {
-            return NextResponse.json(
-                { error: "businessType and location are required" },
-                { status: 400 }
-            );
-        }
-
-        let userPitchContext = "";
-        let userSenderName = "";
-        const token = req.headers.get("Authorization")?.replace("Bearer ", "");
-        console.log('businessType3  ', token);
-
-        if (token) {
-            try {
-                const decoded: jwt.JwtPayload & {
-                    id?: string;
-                    pitch_context?: string;
-                    sender_name?: string;
-                } = jwt.verify(token, process.env.JWT_SECRET!) as jwt.JwtPayload & {
-                    id?: string;
-                    pitch_context?: string;
-                    sender_name?: string;
-                };
-                console.log('businessType4  ', decoded);
-                // Verify user actually exists in the database
-                if (decoded.id) {
-                    const supabase = getSupabaseClient();
-                    const { data: userExists } = await supabase
-                        .from('users')
-                        .select('user_id')
-                        .eq('user_id', decoded.id)
-                        .single();
-                    console.log('businessType5  ', userExists);
-                    if (!userExists) {
-                        return NextResponse.json(
-                            { error: "Session invalid: Your user account was not found. Please log out and log in again." },
-                            { status: 401 }
-                        );
-                    }
-                }
-
-                if (decoded.pitch_context) {
-                    userPitchContext = decoded.pitch_context;
-                }
-                if (decoded.sender_name) {
-                    userSenderName = decoded.sender_name;
-                }
-            } catch {
-                // Token verification failed — proceed without user context
-            }
-        }
-
-        if (isFreeMode) {
-            userPitchContext =
-                userPitchContext ||
-                "We provide professional B2B services to UK limited companies.";
-            userSenderName = userSenderName || "Your name";
-        }
-
-        if (!isFreeMode && (!userPitchContext || userPitchContext.trim() === "")) {
-            return NextResponse.json(
-                {
-                    error: "Please complete your pitch description in Profile Settings before generating pitches.",
-                },
-                { status: 400 }
-            );
-        }
-
-        let businesses: Array<{
-            name: string;
-            formatted_address?: string;
-            formatted_phone_number?: string;
-            websiteUri?: string;
-            rating?: number;
-            user_ratings_total?: number;
-        }> = [];
-
-        if (GOOGLE_API_KEY) {
-            try {
-                const googleRes = await axios.post(
-                    "https://places.googleapis.com/v1/places:searchText",
-                    {
-                        textQuery: `${businessType} in ${location}`,
-                    },
-                    {
-                        headers: {
-                            "Content-Type": "application/json",
-                            "X-Goog-Api-Key": GOOGLE_API_KEY,
-                            "X-Goog-FieldMask":
-                                "places.displayName,places.formattedAddress,places.nationalPhoneNumber,places.internationalPhoneNumber,places.websiteUri,places.rating,places.userRatingCount",
-                        },
-                    }
-                );
-                if (googleRes.data?.places?.length > 0) {
-                    businesses = googleRes.data.places.map(
-                        (place: {
-                            displayName?: { text?: string };
-                            formattedAddress?: string;
-                            nationalPhoneNumber?: string;
-                            internationalPhoneNumber?: string;
-                            websiteUri?: string;
-                            rating?: number;
-                            userRatingCount?: number;
-                        }) => ({
-                            name: place.displayName?.text ?? "",
-                            formatted_address: place.formattedAddress,
-                            formatted_phone_number:
-                                place.nationalPhoneNumber ||
-                                place.internationalPhoneNumber,
-                            websiteUri: place.websiteUri,
-                            rating: place.rating,
-                            user_ratings_total: place.userRatingCount,
-                        })
-                    );
-                }
-            } catch (err: unknown) {
-                const axiosErr = err as { response?: { data?: unknown } };
-                console.log(
-                    "Google API error or legacy key restricted",
-                    axiosErr.response?.data
-                );
-            }
-        }
-
-        const singleType = toTitleCase(businessType);
-        const leadDrafts: LeadDraft[] = [];
-
-        for (const [index, business] of businesses.slice(0, 10).entries()) {
-            let companyName = business.name;
-            let companyNumber = "";
-            let companyStatus = "";
-            let incorporatedYear = "";
-            let directorFullName = "";
-            let directorFirstName = "";
-
-            if (CH_API_KEY) {
-                try {
-                    const chRes = await axios.get(
-                        `https://api.company-information.service.gov.uk/search/companies?q=${encodeURIComponent(
-                            business.name
-                        )}`,
-                        {
-                            auth: {
-                                username: CH_API_KEY as string,
-                                password: "",
-                            },
-                            timeout: 4000,
-                        }
-                    );
-
-                    const company = chRes.data?.items?.[0];
-                    if (company) {
-                        companyName = toTitleCase(company.title || business.name);
-                        companyNumber = company.company_number || companyNumber;
-                        companyStatus =
-                            company.company_status === "active"
-                                ? "Active limited company"
-                                : toTitleCase(company.company_status);
-
-                        if (company.date_of_creation) {
-                            incorporatedYear = company.date_of_creation.substring(0, 4);
-                        }
-
-                        try {
-                            const offRes = await axios.get(
-                                `https://api.company-information.service.gov.uk/company/${company.company_number}/officers`,
-                                {
-                                    auth: {
-                                        username: CH_API_KEY as string,
-                                        password: "",
-                                    },
-                                    timeout: 3000,
-                                }
-                            );
-                            const officer = offRes.data?.items?.find(
-                                (o: { officer_role?: string; resigned_on?: string; name?: string }) =>
-                                    o.officer_role === "director" && !o.resigned_on
-                            );
-                            if (officer?.name) {
-                                const parts = officer.name.split(",");
-                                if (parts.length > 1) {
-                                    const forenames = parts[1].trim().split(" ");
-                                    directorFirstName = forenames[0];
-                                    const lastName =
-                                        parts[0].trim().charAt(0).toUpperCase() +
-                                        parts[0].trim().slice(1).toLowerCase();
-                                    directorFullName = `${directorFirstName} ${lastName}`;
-                                } else {
-                                    directorFullName = toTitleCase(officer.name);
-                                    directorFirstName = directorFullName.split(" ")[0];
-                                }
-                            }
-                        } catch {
-                            // Officers fetch failed — continue without director
-                        }
-                    }
-                } catch {
-                    // Companies House search failed — continue with Google data
-                }
-            }
-
-            const friendlyBusinessName = companyName
-                .replace(/\b(limited|ltd|plc|llp)\b/gi, "")
-                .trim()
-                .replace(/,\s*$/, "");
-
-            let websiteDomain = "";
-            if (business.websiteUri) {
-                try {
-                    const parsedUrl = new URL(business.websiteUri);
-                    websiteDomain = parsedUrl.hostname.replace(/^www\./, "");
-                } catch {
-                    websiteDomain = business.websiteUri
-                        .replace(/^(https?:\/\/)?(www\.)?/, "")
-                        .split("/")[0];
-                }
-            }
-
-            if (!websiteDomain) {
-                if (business.name.toLowerCase().includes("seaside")) {
-                    websiteDomain = "seasideproperty.co.uk";
-                } else if (business.name.toLowerCase().includes("crown")) {
-                    websiteDomain = "crownresidential.co.uk";
-                } else {
-                    const cleanSimple = friendlyBusinessName
-                        .toLowerCase()
-                        .replace(/[^a-z0-9]/g, "");
-                    if (cleanSimple.length > 3) {
-                        websiteDomain = `${cleanSimple.slice(0, 10)}.co.uk`;
-                    } else {
-                        websiteDomain = "bhestates.co.uk";
-                    }
-                }
-            }
-
-            leadDrafts.push({
-                index,
-                companyNumber,
-                friendlyBusinessName,
-                singleType,
-                location,
-                phone: business.formatted_phone_number || "01273 555 0142",
-                websiteDomain,
-                directorFullName,
-                directorFirstName,
-                incorporatedYear,
-                companyStatus,
-                googleRating: `${business.rating || 4.2} (${business.user_ratings_total || 38} reviews)`,
-                business,
-            });
-        }
-
-        let batchPitches = await generateBatchPitches(
-            leadDrafts,
-            userPitchContext,
-            userSenderName,
-            businessType,
-            location
-        );
-
-        if (!batchPitches) {
-            batchPitches = leadDrafts.map((lead) =>
-                buildTemplatePitch(
-                    lead,
-                    userPitchContext,
-                    userSenderName,
-                    businessType,
-                    location,
-                    lead.index
-                )
-            );
-        }
-
-        const finalResults = leadDrafts.map((lead, i) => {
-            const pitch = batchPitches![i];
-            return {
-                id: lead.companyNumber,
-                name: lead.friendlyBusinessName,
-                businessName: lead.friendlyBusinessName,
-                type: lead.singleType,
-                location: lead.location,
-                phone: lead.phone,
-                website: lead.websiteDomain,
-                email: `info@${lead.websiteDomain}`,
-                director: lead.directorFullName,
-                incorporated: lead.incorporatedYear,
-                googleRating: lead.googleRating,
-                websiteStatus: "Live",
-                companyStatus: lead.companyStatus,
-                message: pitch,
-                personalisedPitch: pitch,
-            };
-        });
-
-        // Insert search and leads into Supabase if we have a valid token (user)
-        if (token) {
-            try {
-
-                const supabase = getSupabaseClient();
-
-                // Insert search
-                const { data: searchData, error: searchError } = await supabase
-                    .from('searches')
-                    .insert({
-                        user_id: auth.userId,
-                        business_type: businessType,
-                        location: location,
-                        leads: finalResults.length,
-                        pitch: userPitchContext
-                    })
-                    .select()
-                    .single();
-
-                if (searchData && searchData.search_id) {
-                    // Insert leads belonging to this search
-                    const leadsToInsert = finalResults.map(lead => ({
-                        search_id: searchData.search_id,
-                        company_number: lead.id,
-                        name: lead.name,
-                        business_name: lead.businessName,
-                        type: lead.type,
-                        location: lead.location,
-                        phone: lead.phone,
-                        website: lead.website,
-                        email: lead.email,
-                        director: lead.director,
-                        incorporated: lead.incorporated,
-                        google_rating: lead.googleRating,
-                        website_status: lead.websiteStatus,
-                        company_status: lead.companyStatus,
-                        message: lead.message,
-                        personalised_pitch: lead.personalisedPitch
-                    }));
-
-                    await supabase.from('leads').insert(leadsToInsert);
-
-                    // Decrement per_day in payments table
-                    try {
-                        const { data: activePay } = await supabase
-                            .from('payments')
-                            .select('id, per_day, per_month')
-                            .eq('user_id', auth.userId)
-                            .eq('is_active', true)
-                            .order('created_at', { ascending: false })
-                            .limit(1)
-                            .single();
-
-                        if (activePay && typeof activePay.per_day === 'number' && activePay.per_day > 0) {
-                            const updates: any = {
-                                per_day: activePay.per_day - 1
-                            };
-
-                            if (typeof activePay.per_month === 'number') {
-                                updates.per_month = Math.max(0, activePay.per_month - finalResults.length);
-                            }
-
-                            await supabase
-                                .from('payments')
-                                .update(updates)
-                                .eq('id', activePay.id);
-                        }
-                    } catch (payErr) {
-                        console.error('Failed to decrement payment per_day:', payErr);
-                    }
-
-
-                }
-            } catch (err) {
-                console.error("Failed to decode token or insert search history:", err);
-            }
-        }
-
-        return NextResponse.json({
-            success: true,
-            results: isFreeMode ? finalResults.slice(0, 5) : finalResults,
-            freeMode: isFreeMode,
-        });
-    } catch (error: unknown) {
-        console.error("Search error:", error);
-        return NextResponse.json(
-            { error: "Failed to search businesses" },
-            { status: 500 }
-        );
+  try {
+    const { searchParams } = new URL(req.url);
+    const businessType = searchParams.get("businessType");
+    const location = searchParams.get("location");
+    const auth = verifyAuth(req);
+    if (!businessType || !location) {
+      return NextResponse.json(
+        { error: "businessType and location are required" },
+        { status: 400 },
+      );
     }
+
+    let userPitchContext = "";
+    let userSenderName = "";
+    let hasValidToken = false;
+    let isSubscribed = false;
+    const token = req.headers.get("Authorization")?.replace("Bearer ", "");
+
+    if (token) {
+      try {
+        const decoded: jwt.JwtPayload & {
+          id?: string;
+          pitch_context?: string;
+          sender_name?: string;
+        } = jwt.verify(token, process.env.JWT_SECRET!) as jwt.JwtPayload & {
+          id?: string;
+          pitch_context?: string;
+          sender_name?: string;
+        };
+        // Verify user actually exists in the database (and read their
+        // subscription status — the DB is the source of truth, not the token).
+        if (decoded.id) {
+          const supabase = getSupabaseClient();
+          const { data: userExists } = await supabase
+            .from("users")
+            .select("user_id, is_subscribed, pitch_context, sender_name")
+            .eq("user_id", decoded.id)
+            .single();
+          if (!userExists) {
+            return NextResponse.json(
+              {
+                error:
+                  "Session invalid: Your user account was not found. Please log out and log in again.",
+              },
+              { status: 401 },
+            );
+          }
+          hasValidToken = true;
+          isSubscribed = userExists.is_subscribed === true;
+          // The DB is the source of truth for pitch context / sender name —
+          // the JWT minted after Stripe checkout doesn't carry them.
+          if (userExists.pitch_context) {
+            userPitchContext = userExists.pitch_context;
+          }
+          if (userExists.sender_name) {
+            userSenderName = userExists.sender_name;
+          }
+        }
+
+        // Fallback to the token values only if the DB didn't provide them.
+        if (!userPitchContext && decoded.pitch_context) {
+          userPitchContext = decoded.pitch_context;
+        }
+        if (!userSenderName && decoded.sender_name) {
+          userSenderName = decoded.sender_name;
+        }
+      } catch {
+        // Token verification failed — treat as anonymous (free trial)
+      }
+    }
+
+    // Full (paid) results require an authenticated AND subscribed user.
+    // Anyone else — anonymous, or logged-in but not subscribed — gets the
+    // restricted free-trial preview. This enforces the paywall server-side so
+    // a valid token alone can't unlock full data without paying.
+    // Also honour an explicit ?free=true preview flag from the frontend.
+    const isFreeMode =
+      !hasValidToken || !isSubscribed || searchParams.get("free") === "true";
+
+    // A logged-in (non-free) user must have completed their pitch description.
+    if (!isFreeMode && (!userPitchContext || userPitchContext.trim() === "")) {
+      return NextResponse.json(
+        {
+          error:
+            "Please complete your pitch description in Profile Settings before generating pitches.",
+        },
+        { status: 400 },
+      );
+    }
+
+    // Browser fingerprint (sent by the frontend). Used as the primary
+    // device-level gate so clearing cookies alone can't reset the trial.
+    const trialFingerprint =
+      req.headers.get("x-zivlo-fp") || searchParams.get("fp") || null;
+
+    // Free-trial gate: one free search only. If this device has already
+    // used its free search (by cookie OR fingerprint), send them to the
+    // paywall instead of searching.
+    if (isFreeMode) {
+      const cookieUsed =
+        readCookie(req.headers.get("cookie"), TRIAL_COOKIE) === "1";
+
+      let fingerprintUsed = false;
+      if (trialFingerprint) {
+        try {
+          const supabase = getSupabaseClient();
+          const { data: existingTrial } = await supabase
+            .from("free_trials")
+            .select("id")
+            .eq("fingerprint", trialFingerprint)
+            .maybeSingle();
+          fingerprintUsed = !!existingTrial;
+        } catch (fpErr) {
+          // If the lookup fails, fall back to the cookie gate only.
+          console.error("Free-trial fingerprint check failed:", fpErr);
+        }
+      }
+
+      if (cookieUsed || fingerprintUsed) {
+        return NextResponse.json(
+          {
+            error: "You've used your free search. Subscribe to run more.",
+            trialUsed: true,
+          },
+          { status: 403 },
+        );
+      }
+      // Free-trial preview pitches use a generic service context.
+      userPitchContext = FREE_TRIAL_PITCH_CONTEXT;
+    }
+
+    const leadLimit = isFreeMode ? FREE_LEAD_COUNT : SUBSCRIBED_LEAD_COUNT;
+
+    let businesses: Array<{
+      name: string;
+      formatted_address?: string;
+      formatted_phone_number?: string;
+      websiteUri?: string;
+      rating?: number;
+      user_ratings_total?: number;
+    }> = [];
+
+    if (GOOGLE_API_KEY) {
+      try {
+        const googleRes = await axios.post(
+          "https://places.googleapis.com/v1/places:searchText",
+          {
+            textQuery: `${businessType} in ${location}`,
+          },
+          {
+            headers: {
+              "Content-Type": "application/json",
+              "X-Goog-Api-Key": GOOGLE_API_KEY,
+              "X-Goog-FieldMask":
+                "places.displayName,places.formattedAddress,places.nationalPhoneNumber,places.internationalPhoneNumber,places.websiteUri,places.rating,places.userRatingCount",
+            },
+          },
+        );
+        if (googleRes.data?.places?.length > 0) {
+          businesses = googleRes.data.places.map(
+            (place: {
+              displayName?: { text?: string };
+              formattedAddress?: string;
+              nationalPhoneNumber?: string;
+              internationalPhoneNumber?: string;
+              websiteUri?: string;
+              rating?: number;
+              userRatingCount?: number;
+            }) => ({
+              name: place.displayName?.text ?? "",
+              formatted_address: place.formattedAddress,
+              formatted_phone_number:
+                place.nationalPhoneNumber || place.internationalPhoneNumber,
+              websiteUri: place.websiteUri,
+              rating: place.rating,
+              user_ratings_total: place.userRatingCount,
+            }),
+          );
+        }
+      } catch (err: unknown) {
+        const axiosErr = err as { response?: { data?: unknown } };
+        console.log(
+          "Google API error or legacy key restricted",
+          axiosErr.response?.data,
+        );
+      }
+    }
+
+    const singleType = toTitleCase(businessType);
+    const leadDrafts: LeadDraft[] = [];
+
+    for (const [index, business] of businesses.slice(0, leadLimit).entries()) {
+      let companyName = business.name;
+      let companyNumber = "";
+      let companyStatus = "";
+      let incorporatedYear = "";
+      let directorFullName = "";
+      let directorFirstName = "";
+
+      if (CH_API_KEY) {
+        try {
+          const chRes = await axios.get(
+            `https://api.company-information.service.gov.uk/search/companies?q=${encodeURIComponent(
+              business.name,
+            )}`,
+            {
+              auth: {
+                username: CH_API_KEY as string,
+                password: "",
+              },
+              timeout: 4000,
+            },
+          );
+
+          const company = chRes.data?.items?.[0];
+          if (company) {
+            companyName = toTitleCase(company.title || business.name);
+            companyNumber = company.company_number || companyNumber;
+            companyStatus =
+              company.company_status === "active"
+                ? "Active limited company"
+                : toTitleCase(company.company_status);
+
+            if (company.date_of_creation) {
+              incorporatedYear = company.date_of_creation.substring(0, 4);
+            }
+
+            try {
+              const offRes = await axios.get(
+                `https://api.company-information.service.gov.uk/company/${company.company_number}/officers`,
+                {
+                  auth: {
+                    username: CH_API_KEY as string,
+                    password: "",
+                  },
+                  timeout: 3000,
+                },
+              );
+              const officer = offRes.data?.items?.find(
+                (o: {
+                  officer_role?: string;
+                  resigned_on?: string;
+                  name?: string;
+                }) => o.officer_role === "director" && !o.resigned_on,
+              );
+              if (officer?.name) {
+                const parts = officer.name.split(",");
+                if (parts.length > 1) {
+                  const forenames = parts[1].trim().split(" ");
+                  directorFirstName = forenames[0];
+                  const lastName =
+                    parts[0].trim().charAt(0).toUpperCase() +
+                    parts[0].trim().slice(1).toLowerCase();
+                  directorFullName = `${directorFirstName} ${lastName}`;
+                } else {
+                  directorFullName = toTitleCase(officer.name);
+                  directorFirstName = directorFullName.split(" ")[0];
+                }
+              }
+            } catch {
+              // Officers fetch failed — continue without director
+            }
+          }
+        } catch {
+          // Companies House search failed — continue with Google data
+        }
+      }
+
+      const friendlyBusinessName = companyName
+        .replace(/\b(limited|ltd|plc|llp)\b/gi, "")
+        .trim()
+        .replace(/,\s*$/, "");
+
+      let websiteDomain = "";
+      if (business.websiteUri) {
+        try {
+          const parsedUrl = new URL(business.websiteUri);
+          websiteDomain = parsedUrl.hostname.replace(/^www\./, "");
+        } catch {
+          websiteDomain = business.websiteUri
+            .replace(/^(https?:\/\/)?(www\.)?/, "")
+            .split("/")[0];
+        }
+      }
+
+      if (!websiteDomain) {
+        if (business.name.toLowerCase().includes("seaside")) {
+          websiteDomain = "seasideproperty.co.uk";
+        } else if (business.name.toLowerCase().includes("crown")) {
+          websiteDomain = "crownresidential.co.uk";
+        } else {
+          const cleanSimple = friendlyBusinessName
+            .toLowerCase()
+            .replace(/[^a-z0-9]/g, "");
+          if (cleanSimple.length > 3) {
+            websiteDomain = `${cleanSimple.slice(0, 10)}.co.uk`;
+          } else {
+            websiteDomain = "bhestates.co.uk";
+          }
+        }
+      }
+
+      leadDrafts.push({
+        index,
+        companyNumber,
+        friendlyBusinessName,
+        singleType,
+        location,
+        phone: business.formatted_phone_number || "01273 555 0142",
+        websiteDomain,
+        directorFullName,
+        directorFirstName,
+        incorporatedYear,
+        companyStatus,
+        googleRating: `${business.rating || 4.2} (${business.user_ratings_total || 38} reviews)`,
+        business,
+      });
+    }
+
+    let batchPitches = await generateBatchPitches(
+      leadDrafts,
+      userPitchContext,
+      userSenderName,
+      businessType,
+      location,
+    );
+
+    if (!batchPitches) {
+      batchPitches = leadDrafts.map((lead) =>
+        buildTemplatePitch(
+          lead,
+          userPitchContext,
+          userSenderName,
+          businessType,
+          location,
+          lead.index,
+        ),
+      );
+    }
+
+    const finalResults: SearchLead[] = leadDrafts.map((lead, i) => {
+      // Force the greeting to the director's first name (never company /
+      // location / business type), then apply free-trial truncation.
+      const fullPitch = enforceGreeting(batchPitches![i], lead.directorFirstName);
+      const pitch = isFreeMode ? truncatePitch(fullPitch, 2) : fullPitch;
+      return {
+        id: lead.companyNumber,
+        name: lead.friendlyBusinessName,
+        businessName: lead.friendlyBusinessName,
+        type: lead.singleType,
+        location: lead.location,
+        phone: lead.phone,
+        website: lead.websiteDomain,
+        email: `info@${lead.websiteDomain}`,
+        director: isFreeMode ? "" : lead.directorFullName,
+        directorLocked: isFreeMode,
+        incorporated: lead.incorporatedYear,
+        googleRating: lead.googleRating,
+        websiteStatus: "Live",
+        companyStatus: lead.companyStatus,
+        message: pitch,
+        personalisedPitch: pitch,
+        pitchTruncated: isFreeMode,
+      };
+    });
+
+    // Insert search and leads into Supabase only for verified, logged-in users.
+    if (hasValidToken && !isFreeMode) {
+      try {
+        const supabase = getSupabaseClient();
+
+        // Insert search
+        const { data: searchData, error: searchError } = await supabase
+          .from("searches")
+          .insert({
+            user_id: auth.userId,
+            business_type: businessType,
+            location: location,
+            leads: finalResults.length,
+            pitch: userPitchContext,
+          })
+          .select()
+          .single();
+
+        if (searchData && searchData.search_id) {
+          // Insert leads belonging to this search
+          const leadsToInsert = finalResults.map((lead) => ({
+            search_id: searchData.search_id,
+            company_number: lead.id,
+            name: lead.name,
+            business_name: lead.businessName,
+            type: lead.type,
+            location: lead.location,
+            phone: lead.phone,
+            website: lead.website,
+            email: lead.email,
+            director: lead.director,
+            incorporated: lead.incorporated,
+            google_rating: lead.googleRating,
+            website_status: lead.websiteStatus,
+            company_status: lead.companyStatus,
+            message: lead.message,
+            personalised_pitch: lead.personalisedPitch,
+          }));
+
+          await supabase.from("leads").insert(leadsToInsert);
+
+          // Decrement per_day in payments table
+          try {
+            const { data: activePay } = await supabase
+              .from("payments")
+              .select("id, per_day, per_month")
+              .eq("user_id", auth.userId)
+              .eq("is_active", true)
+              .order("created_at", { ascending: false })
+              .limit(1)
+              .single();
+
+            if (
+              activePay &&
+              typeof activePay.per_day === "number" &&
+              activePay.per_day > 0
+            ) {
+              const updates: any = {
+                per_day: activePay.per_day - 1,
+              };
+
+              if (typeof activePay.per_month === "number") {
+                updates.per_month = Math.max(
+                  0,
+                  activePay.per_month - finalResults.length,
+                );
+              }
+
+              await supabase
+                .from("payments")
+                .update(updates)
+                .eq("id", activePay.id);
+            }
+          } catch (payErr) {
+            console.error("Failed to decrement payment per_day:", payErr);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to decode token or insert search history:", err);
+      }
+    }
+
+    const trialResults = isFreeMode
+      ? finalResults.slice(0, FREE_LEAD_COUNT)
+      : finalResults;
+
+    const response = NextResponse.json({
+      success: true,
+      freeMode: isFreeMode,
+      directorVisible: !isFreeMode,
+      results: trialResults,
+    });
+
+    // Mark the free search as used on this device — but ONLY when the search
+    // actually returned leads, so a failed/empty search (e.g. Google or
+    // Companies House outage) doesn't burn the visitor's single free trial.
+    if (isFreeMode && trialResults.length > 0) {
+      // Cookie gate (cleared easily — secondary).
+      response.cookies.set(TRIAL_COOKIE, "1", {
+        path: "/",
+        maxAge: 60 * 60 * 24 * 365, // 1 year
+        sameSite: "lax",
+        httpOnly: true,
+      });
+
+      // Fingerprint gate (survives cookie clearing — primary).
+      if (trialFingerprint) {
+        try {
+          const supabase = getSupabaseClient();
+          await supabase.from("free_trials").upsert(
+            {
+              fingerprint: trialFingerprint,
+              trial_used: true,
+              ip_address: getClientIp(req),
+              business_type: businessType,
+              location: location,
+            },
+            { onConflict: "fingerprint" },
+          );
+        } catch (recordErr) {
+          console.error("Failed to record free-trial fingerprint:", recordErr);
+        }
+      }
+    }
+
+    return response;
+  } catch (error: unknown) {
+    console.error("Search error:", error);
+    return NextResponse.json(
+      { error: "Failed to search businesses" },
+      { status: 500 },
+    );
+  }
 }

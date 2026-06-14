@@ -111,7 +111,7 @@ export default function SignUp() {
     <div className="flex items-center gap-8">
         <button
             onClick={() => router.push('/login')}
-            className="text-sm md:text-base text-slate-600 hover:text-slate-900 transition"
+            className="text-sm md:text-base text-slate-600 hover:text-slate-900 transition cursor-pointer"
         >
             Already have an account?{" "}
             <span className="font-semibold" style={{ color: navy }}>

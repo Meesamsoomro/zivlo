@@ -18,8 +18,8 @@ import {
   getUserFirstName,
   hasUsedFreeSearch,
   isUserSubscribed,
-  recordFreeSearch,
 } from "@/lib/trial";
+import { getFingerprint } from "@/lib/fingerprint";
 
 const DAILY_SEARCH_LIMIT = 5;
 
@@ -38,12 +38,41 @@ function SearchPageContent() {
   const [firstName, setFirstName] = useState<string | null>(null);
 
   useEffect(() => {
-    setSubscribed(isUserSubscribed());
-    setCanTryFree(canRunFreeSearch());
-    setTrialUsed(hasUsedFreeSearch());
+    const sub = isUserSubscribed();
+    setSubscribed(sub);
     setRemainingToday(getRemainingDailySearches());
     setFirstName(getUserFirstName());
-    setReady(true);
+
+    // Subscribers don't need the free-trial check — paint immediately.
+    if (sub) {
+      setReady(true);
+      return;
+    }
+
+    // Non-subscribers: the source of truth is the backend fingerprint gate
+    // (survives cookie/localStorage clears). Wait for that check before
+    // painting so we never flash the wrong state (e.g. paywall → form).
+    let cancelled = false;
+    (async () => {
+      let used = hasUsedFreeSearch();
+      try {
+        const fp = await getFingerprint();
+        const res = await fetch(`/api/trial-status?fp=${encodeURIComponent(fp)}`, {
+          headers: { "x-zivlo-fp": fp },
+        });
+        const data = await res.json();
+        if (typeof data?.used === "boolean") used = data.used;
+      } catch {
+        /* fall back to the localStorage hint */
+      }
+      if (cancelled) return;
+      setTrialUsed(used);
+      setCanTryFree(!used);
+      setReady(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const refreshTrialFlags = () => {
@@ -56,7 +85,8 @@ function SearchPageContent() {
 
   const handleFreeSearch = () => {
     if (!businessType.trim() || !location.trim()) return;
-    recordFreeSearch();
+    // Don't mark the trial used here — the results page records it only after
+    // the backend returns leads, so a failed/empty search isn't wasted.
     router.push(
       `/results?type=${encodeURIComponent(businessType.trim())}&location=${encodeURIComponent(location.trim())}&mode=free`
     );

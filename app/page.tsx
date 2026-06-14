@@ -113,7 +113,7 @@ export default function HomePage() {
           >
             <Link href="/" className="inline-flex shrink-0 items-center">
               <Logo
-                className={scrolled ? "h-7 w-auto" : "h-8 w-auto drop-shadow-md"}
+                className={scrolled ? "h-8 w-auto" : "h-15 w-auto drop-shadow-md"}
               />
             </Link>
 
@@ -566,7 +566,7 @@ export default function HomePage() {
             <Send className="h-4 w-4" />
           </button>
           <p className="mt-3 text-xs font-light tracking-wide text-white/40">
-            No signup required. £19.99/month to unlock everything.
+            No signup required. See real UK leads in 60 seconds.
           </p>
         </div>
 
