@@ -1,7 +1,7 @@
 "use client";
 import Logo from "@/components/Logo";
 import Image from "next/image";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -58,6 +58,55 @@ const FAQ_ITEMS = [
   },
 ];
 
+function FounderVideo() {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const sectionRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    const section = sectionRef.current;
+    if (!video || !section) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          video.play().catch(() => {
+            /* autoplay blocked — user controls se chalayega */
+          });
+        } else {
+          video.pause();
+        }
+      },
+      { threshold: 0.4 } // ~40% visible hone par play
+    );
+
+    observer.observe(section);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <section
+      ref={sectionRef}
+      className="bg-cream px-5 py-12 md:px-12 md:py-16"
+    >
+      <div className="mx-auto w-full max-w-sm md:max-w-md lg:max-w-lg">
+        <div className="overflow-hidden rounded-2xl border border-gray-100 bg-navy/5 shadow-sm">
+          <video
+            ref={videoRef}
+            className="mx-auto max-h-[75vh] w-full object-contain md:max-h-[80vh]"
+            muted
+            playsInline
+            controls
+            preload="metadata"
+            poster="/images/professional-office.jpg"
+          >
+            <source src="/videos/founder_intro.mp4" type="video/mp4" />
+          </video>
+        </div>
+      </div>
+    </section>
+  );
+}
 export default function HomePage() {
   const router = useRouter();
   const [openFaq, setOpenFaq] = useState<number | null>(null);
@@ -230,6 +279,8 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+
+      <FounderVideo />
 
       {/* Feature quote + office image */}
       <section className="bg-cream">
