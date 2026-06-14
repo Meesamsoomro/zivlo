@@ -1,6 +1,5 @@
 "use client";
-import Logo from "@/components/Logo";
-import React, { useEffect, useState, Suspense } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowRight, Check, Lock } from "lucide-react";
 import Link from "next/link";
@@ -8,8 +7,6 @@ import Link from "next/link";
 function PaywallContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const navy = "#0D1529";
-  const gold = "#C8A84B";
   const [loading, setLoading] = useState(true);
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [user, setUser] = useState<any>(null);
@@ -113,142 +110,100 @@ function PaywallContent() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900"></div>
+      <div className="flex min-h-screen items-center justify-center bg-cream">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-gold border-t-transparent" />
       </div>
     );
   }
 
   return (
-    <div
-      className="min-h-screen bg-slate-50 flex flex-col"
-      style={{ fontFamily: '"Helvetica Neue", Helvetica, Arial, sans-serif' }}
-    >
-      <nav className="flex items-center justify-between px-5 py-4 md:px-12 md:py-5 bg-white border-b border-slate-100">
-        <Link href="/"><Logo /></Link>
+    <div className="mx-auto flex min-h-screen max-w-[430px] flex-col bg-cream">
+      <header className="flex items-center justify-between rounded-b-3xl bg-navy px-5 pb-6 pt-4">
+        <Link href="/" className="flex items-center gap-2">
+          <span className="text-xl font-bold text-gold">Z</span>
+          <span className="font-serif font-semibold text-white">Zivlo</span>
+        </Link>
+        <button
+          onClick={handleLogout}
+          className="text-xs font-light text-white/60 active:text-white"
+        >
+          Log out
+        </button>
+      </header>
 
-        <div className="flex items-center gap-3">
-          <Link
-            href='/dashboard'
-            className="text-xs md:text-sm text-white px-3 py-1.5 md:px-4 md:py-2 rounded-lg font-semibold shadow-md"
-            style={{ backgroundColor: navy }}
-          >
-            Go to Dashboard
-          </Link>
-          <button
-            onClick={handleLogout}
-            className="text-sm text-slate-600 hover:text-slate-900"
-          >
-            Log out
-          </button>
+      <div className="flex flex-1 flex-col items-center px-6 pb-10 pt-2 text-center">
+        {message && (
+          <div className="mt-4 w-full max-w-[320px] rounded-xl border border-green-200 bg-green-50 p-3">
+            <p className="text-xs font-medium text-green-700">{message}</p>
+          </div>
+        )}
+
+        <div className="mb-6 mt-6 flex h-16 w-16 items-center justify-center rounded-full bg-gold/10">
+          <Lock className="h-8 w-8 text-gold" />
         </div>
-      </nav>
 
-      <div className="flex-1 flex items-center justify-center px-5 py-12 md:py-16">
-        <div className="w-full max-w-lg">
-          {message && (
-            <div className="mb-6 p-4 rounded-lg bg-green-50 border border-green-200">
-              <p className="text-sm text-green-700 text-center font-semibold">
-                {message}
-              </p>
-            </div>
-          )}
+        <h1 className="font-serif text-2xl font-semibold leading-snug text-navy">
+          One last step to unlock everything
+        </h1>
+        <p className="mt-3 max-w-[300px] text-sm font-light leading-relaxed text-[#666]">
+          Subscribe to reveal director names, full personalised pitches, and run
+          unlimited searches.
+        </p>
 
-          <div className="text-center mb-8">
-            <div
-              className="w-16 h-16 mx-auto rounded-full flex items-center justify-center mb-5"
-              style={{ backgroundColor: navy }}
-            >
-              <Lock size={28} style={{ color: gold }} />
-            </div>
-
-            <h1
-              className="text-3xl md:text-4xl font-bold mb-3 leading-tight"
-              style={{
-                color: navy,
-                fontFamily: "Georgia, serif",
-                letterSpacing: "-0.02em",
-              }}
-            >
-              Subscribe to start
-              <br />
-              finding clients
-            </h1>
-
-            <p className="text-slate-600 text-base md:text-lg">
-              Get unlimited access to high-quality UK business leads for your
-              service.
+        <div className="mt-8 w-full max-w-[320px] rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+          <div className="mb-4 text-center">
+            <p className="font-serif text-4xl font-semibold text-navy">£19.99</p>
+            <p className="text-sm font-light text-[#666]">
+              /month · cancel anytime
             </p>
           </div>
 
-          <div
-            className="bg-white rounded-2xl p-7 md:p-8 shadow-xl border-2"
-            style={{ borderColor: gold }}
-          >
-            <div className="text-center mb-6">
-              <span
-                className="text-5xl font-bold"
-                style={{ color: navy, fontFamily: "Georgia, serif" }}
+          <div className="mb-6 space-y-2 text-left">
+            {[
+              "Up to 5 searches per day",
+              "Up to 10 leads per search",
+              "Director names & full pitches",
+              "Search history saved",
+              "Cancel anytime",
+            ].map((feature) => (
+              <div
+                key={feature}
+                className="flex items-center gap-2 text-sm text-navy"
               >
-                £19.99
-              </span>
-
-              <span className="text-lg text-slate-500 font-medium">/month</span>
-            </div>
-
-            <ul className="space-y-3 mb-7">
-              {[
-                "Up to 5 searches per day",
-                "Up to 10 leads per search",
-                "Personalised pitch per lead",
-                "UK limited companies only",
-                
-              ].map((feature, i) => (
-                <li
-                  key={i}
-                  className="flex items-center gap-3 text-slate-700 text-sm md:text-base"
-                >
-                  <Check
-                    size={18}
-                    style={{ color: gold }}
-                    strokeWidth={3}
-                    className="flex-shrink-0"
-                  />
-                  {feature}
-                </li>
-              ))}
-            </ul>
-
-            <button
-              onClick={() => handleSubscribe(19.99)}
-              disabled={paymentLoading}
-              className="w-full py-4 rounded-lg font-semibold transition flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90"
-              style={{ backgroundColor: gold, color: navy }}
-            >
-              {paymentLoading ? (
-                <>
-                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Processing...
-                </>
-              ) : (
-                <>
-                  Subscribe now
-                  <ArrowRight size={18} />
-                </>
-              )}
-            </button>
-
-            <p className="text-xs text-center text-slate-500 mt-4">
-              Secure payment via Stripe. Cancel anytime in your dashboard.
-            </p>
+                <Check className="h-3.5 w-3.5 shrink-0 text-gold" strokeWidth={3} />
+                <span className="font-light">{feature}</span>
+              </div>
+            ))}
           </div>
 
-          {user && (
-            <p className="text-center text-sm text-slate-500 mt-6">
-              Logged in as {user.email}
-            </p>
-          )}
+          <button
+            onClick={() => handleSubscribe(19.99)}
+            disabled={paymentLoading}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-gold py-3.5 text-sm font-medium text-navy shadow-md transition-transform active:scale-[0.98] disabled:opacity-50"
+          >
+            {paymentLoading ? (
+              <>
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-navy/30 border-t-navy" />
+                Processing…
+              </>
+            ) : (
+              <>
+                Subscribe — £19.99/month
+                <ArrowRight className="h-4 w-4" />
+              </>
+            )}
+          </button>
+
+          <p className="mt-3 text-[10px] font-light text-[#999]">
+            Secure payment via Stripe. Cancel anytime in your dashboard.
+          </p>
         </div>
+
+        {user && (
+          <p className="mt-6 text-xs font-light text-[#999]">
+            Logged in as {user.email}
+          </p>
+        )}
       </div>
     </div>
   );

@@ -16,8 +16,10 @@ import {
 import {
   isInFreeMode,
   isUserSubscribed,
+  recordFreeSearch,
   truncatePitch,
 } from "@/lib/trial";
+import { getFingerprint } from "@/lib/fingerprint";
 
 type NormalizedLead = {
   id: string;
@@ -119,15 +121,29 @@ function ResultsContent() {
         }
 
         if (freeMode && businessType && location) {
+          const fp = await getFingerprint();
           const res = await fetch(
-            `/api/search?businessType=${encodeURIComponent(businessType)}&location=${encodeURIComponent(location)}&free=true`
+            `/api/search?businessType=${encodeURIComponent(businessType)}&location=${encodeURIComponent(location)}&free=true&fp=${encodeURIComponent(fp)}`,
+            { headers: { "x-zivlo-fp": fp } }
           );
           const data = await res.json();
           if (cancelled) return;
+
+          // Trial already used on this device (fingerprint/cookie gate) →
+          // send them to the paywall state on /search.
+          if (res.status === 403 || data.trialUsed) {
+            recordFreeSearch();
+            router.replace("/search");
+            return;
+          }
+
           if (data.success) {
             const normalized = (data.results || []).map(normalizeLead);
             setLeads(normalized);
             setQuery({ type: businessType, location });
+            // Only now is the free search actually spent — keep localStorage
+            // in sync with the backend gate.
+            recordFreeSearch();
             localStorage.setItem(
               "zivlo_search_results",
               JSON.stringify(data.results)
