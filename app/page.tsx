@@ -58,30 +58,41 @@ const FAQ_ITEMS = [
   },
 ];
 
+const FOUNDER_VIDEO_POSTER = "/images/founder-video-poster.jpg";
+
 function FounderVideo() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const sectionRef = useRef<HTMLElement>(null);
+  const [showPoster, setShowPoster] = useState(true);
 
   useEffect(() => {
     const video = videoRef.current;
     const section = sectionRef.current;
     if (!video || !section) return;
 
+    const onPlaying = () => setShowPoster(false);
+
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
           video.play().catch(() => {
-            /* autoplay blocked — user controls se chalayega */
+            /* autoplay blocked — poster stays until user presses play */
           });
         } else {
           video.pause();
+          video.currentTime = 0;
+          setShowPoster(true);
         }
       },
-      { threshold: 0.4 } // ~40% visible hone par play
+      { threshold: 0.4 },
     );
 
+    video.addEventListener("playing", onPlaying);
     observer.observe(section);
-    return () => observer.disconnect();
+    return () => {
+      video.removeEventListener("playing", onPlaying);
+      observer.disconnect();
+    };
   }, []);
 
   return (
@@ -90,18 +101,28 @@ function FounderVideo() {
       className="bg-cream px-5 py-12 md:px-12 md:py-16"
     >
       <div className="mx-auto w-full max-w-sm md:max-w-md lg:max-w-lg">
-        <div className="overflow-hidden rounded-2xl border border-gray-100 bg-navy/5 shadow-sm">
+        <div className="relative aspect-[9/16] overflow-hidden rounded-2xl border border-gray-100 bg-navy shadow-sm">
           <video
             ref={videoRef}
-            className="mx-auto max-h-[75vh] w-full object-contain md:max-h-[80vh]"
+            className="absolute inset-0 h-full w-full object-cover"
             muted
             playsInline
             controls
-            preload="metadata"
-            poster="/images/professional-office.jpg"
+            preload="none"
+            poster={FOUNDER_VIDEO_POSTER}
           >
             <source src="/videos/founder_intro.mp4" type="video/mp4" />
           </video>
+          {showPoster && (
+            <Image
+              src={FOUNDER_VIDEO_POSTER}
+              alt="Zivlo founder introduction"
+              fill
+              className="pointer-events-none object-cover"
+              sizes="(max-width: 768px) 100vw, 448px"
+              priority
+            />
+          )}
         </div>
       </div>
     </section>
