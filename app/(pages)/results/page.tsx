@@ -70,6 +70,70 @@ async function copyToClipboard(text: string): Promise<boolean> {
   return ok;
 }
 
+const LOADING_STEPS = [
+  "Searching Companies House…",
+  "Finding matching businesses…",
+  "Writing your personalised pitches…",
+];
+
+function SearchLoadingScreen() {
+  const [step, setStep] = useState(0);
+
+  useEffect(() => {
+    const t1 = setTimeout(() => setStep(1), 3500);
+    const t2 = setTimeout(() => setStep(2), 8000);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, []);
+
+  return (
+    <div className="mx-auto flex min-h-screen max-w-[430px] flex-col items-center justify-center bg-cream px-6">
+      <div
+        className="h-11 w-11 animate-spin rounded-full border-[3px] border-gold/25 border-t-gold"
+        role="status"
+        aria-label="Loading search results"
+      />
+
+      <p className="mt-6 text-sm font-medium text-navy">Working on your search</p>
+
+      <ul className="mt-5 w-full max-w-[280px] space-y-3">
+        {LOADING_STEPS.map((label, index) => {
+          const isDone = index < step;
+          const isActive = index === step;
+          return (
+            <li
+              key={label}
+              className={`flex items-start gap-2.5 text-sm transition-colors duration-500 ${
+                isDone
+                  ? "font-light text-[#999]"
+                  : isActive
+                    ? "font-medium text-navy"
+                    : "font-light text-[#ccc]"
+              }`}
+            >
+              <span
+                className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] ${
+                  isDone
+                    ? "bg-gold/20 text-gold"
+                    : isActive
+                      ? "animate-pulse bg-gold text-navy"
+                      : "bg-gray-100 text-[#ccc]"
+                }`}
+                aria-hidden
+              >
+                {isDone ? "✓" : index + 1}
+              </span>
+              <span className={isActive ? "animate-pulse" : undefined}>{label}</span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 function ResultsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -214,12 +278,11 @@ function ResultsContent() {
       }
     }
 
-    const timer = setTimeout(loadResults, freeMode ? 800 : 0);
+    loadResults();
     return () => {
       cancelled = true;
-      clearTimeout(timer);
     };
-  }, [businessType, location, freeMode, searchId, subscribed]);
+  }, [businessType, location, freeMode, searchId, subscribed, router]);
 
   const handleCopyPitch = async (lead: NormalizedLead) => {
     if (freeMode) return;
@@ -239,17 +302,7 @@ function ResultsContent() {
   const displayType = query.type || businessType || "Leads";
 
   if (loading) {
-    return (
-      <div className="mx-auto flex min-h-screen max-w-[430px] flex-col items-center justify-center bg-cream px-6">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-gold border-t-transparent" />
-        <p className="mt-4 text-sm font-light text-[#666]">
-          Finding leads in {displayLocation}…
-        </p>
-        <p className="mt-1 text-xs font-light text-[#999]">
-          Cross-referencing Companies House
-        </p>
-      </div>
-    );
+    return <SearchLoadingScreen />;
   }
 
   if (error) {
@@ -442,11 +495,7 @@ function ResultsContent() {
 export default function ResultsPage() {
   return (
     <Suspense
-      fallback={
-        <div className="mx-auto flex min-h-screen max-w-[430px] items-center justify-center bg-cream">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-gold border-t-transparent" />
-        </div>
-      }
+      fallback={<SearchLoadingScreen />}
     >
       <ResultsContent />
     </Suspense>

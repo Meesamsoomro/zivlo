@@ -58,7 +58,7 @@ const FAQ_ITEMS = [
   },
 ];
 
-const FOUNDER_VIDEO_POSTER = "/images/founder-video-poster.jpg";
+const FOUNDER_VIDEO_POSTER = "/images/professional-office.jpg";
 
 function FounderVideo() {
   const videoRef = useRef<HTMLVideoElement>(null);
